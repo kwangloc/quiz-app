@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="95" fill="#ffffff" stroke="#1e40af" stroke-width="3"/>
+  
+  <!-- Book -->
+  <path d="M60 70 L100 60 L140 70 L140 140 Q100 150 60 140 Z" fill="#3b82f6" opacity="0.8"/>
+  <path d="M100 60 L140 70 L140 140 Q100 150 100 160 Z" fill="#1e40af"/>
+  
+  <!-- Pages/lines on book -->
+  <line x1="70" y1="85" x2="130" y2="80" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  <line x1="68" y1="100" x2="128" y2="95" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  <line x1="66" y1="115" x2="126" y2="110" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Checkmark (for quiz/correct answers) -->
+  <g transform="translate(120, 45)">
+    <circle cx="0" cy="0" r="15" fill="#10b981"/>
+    <path d="M-8 0 L-2 6 L8 -8" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
