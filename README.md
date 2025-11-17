@@ -1,11 +1,15 @@
-# Quiz App - Electron + React + Tailwind + Express + SQLite
+# Quiz App - (Electron/React/Tailwind/Express/SQLite)
 
-This starter project packages a simple offline quiz application as an Electron desktop app.
+A simple offline quiz application built with Electron Desktop App
 
 ## Features
 - Teacher can create multiple-choice questions
+- Optional time limit per exam (auto-submit when time is up)
+- Randomized question order and answer choices per attempt
 - Students take quizzes sequentially on one computer
-- Results saved in local SQLite database
+- Sidebar question tracker with jump-to-question and integrated timer
+- In-app result summary (score, percentage, time spent)
+- Results saved in local SQLite (embedded) database
 - Export results to Excel
 
 ## How to run (development)
@@ -25,11 +29,19 @@ This starter project packages a simple offline quiz application as an Electron d
    ```
 
 Open the app window (it will open automatically). By default the client runs on http://localhost:5173 and server on http://localhost:3000.
+Open the app window (it will open automatically). By default the client runs on http://localhost:5173 and the server on http://localhost:3001.
+
+## Usage
+- Teacher
+   - Open the Teacher tab, add/edit questions, and optionally set a time limit (in minutes).
+   - Click Save to persist. Use Export to download results as Excel.
+- Student
+   - Enter your name and start the exam. The timer appears in the left tracker panel.
+   - Navigate via the tracker; submit when done. If a time limit is set, the exam auto-submits at 0.
 
 ## How to build (production)
 1. Build client:
    ```
-   cd client
    npm run build
    cd ..
    ```
@@ -39,8 +51,4 @@ Open the app window (it will open automatically). By default the client runs on 
    ```
 
 This uses `electron-builder` to produce an installer (Windows NSIS by default).
-
-## Notes
-- This starter is intentionally minimal so a non-technical teacher can use the app.
-- For production, consider signing the installer and testing on the target OS.
 
