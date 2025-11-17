@@ -1,0 +1,45 @@
+{
+  "name": "quiz-app",
+  "version": "1.0.0",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm:dev:electron\" \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:electron": "electron .",
+    "dev:server": "cd server && nodemon index.js",
+    "dev:client": "cd client && npm run dev",
+    "build:client": "cd client && npm run build",
+    "build": "npm run build:client && electron-builder",
+    "dist": "npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.0",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0",
+    "nodemon": "^3.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.18.2",
+    "sql.js": "^1.13.0"
+  },
+  "build": {
+    "appId": "com.quiz.app",
+    "productName": "Quiz App",
+    "directories": {
+      "output": "dist"
+    },
+    "asarUnpack": [
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "client/dist/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
