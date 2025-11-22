@@ -15,6 +15,7 @@ export default function StudentPage({ setMode }){
   const [started, setStarted] = useState(false)
   const [resultInfo, setResultInfo] = useState(null)
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(null)
+  const [passingThreshold, setPassingThreshold] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(()=>{ 
@@ -22,6 +23,10 @@ export default function StudentPage({ setMode }){
     fetch('http://localhost:3001/api/settings/time-limit')
       .then(r=>r.json())
       .then(d=> setTimeLimitMinutes(d && d.minutes != null ? Number(d.minutes) : null))
+      .catch(()=>{})
+    fetch('http://localhost:3001/api/settings/passing-threshold')
+      .then(r=>r.json())
+      .then(d=> setPassingThreshold(d && d.percent != null ? Number(d.percent) : null))
       .catch(()=>{})
   }, [])
 
@@ -44,6 +49,8 @@ export default function StudentPage({ setMode }){
 
   function startExam() {
     if (!name.trim()) return alert('Please enter your name')
+    // Ensure previous submission state is cleared for a fresh attempt
+    setSubmitted(false)
     // Shuffle questions and choices per attempt
     const shuffle = (arr) => {
       const a = arr.slice()
@@ -166,6 +173,7 @@ export default function StudentPage({ setMode }){
             {/* Sidebar Tracker now includes timer */}
             <QuestionTracker 
               sidebar 
+              studentName={name}
               questions={examQuestions || questions} 
               answers={answers} 
               timeElapsed={timeElapsed}
@@ -188,19 +196,24 @@ export default function StudentPage({ setMode }){
                     setExamQuestions(null)
                     setStartTime(null)
                     setTimeElapsed(0)
+                    setSubmitted(false)
                   }}
                   formatTime={formatTime}
+                  passingThreshold={passingThreshold}
                 />
               )}
-              <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-lg shadow">
+              {/* <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-lg shadow">
                 <div>
                   <h2 className="text-xl font-semibold">Chào mừng, {name}</h2>
                   <p className="text-sm text-gray-600">Trả lời tất cả các câu hỏi và nộp bài khi hoàn thành</p>
                   {timeLimitMinutes != null && Number(timeLimitMinutes) > 0 && (
-                    <div className="mt-1 text-xs text-gray-500">Giới hạn thời gian: {timeLimitMinutes} phút (đồng hồ ở bên trái)</div>
+                    <div className="mt-1 text-xs text-gray-500">Giới hạn thời gian: {timeLimitMinutes} phút</div>
+                  )}
+                  {passingThreshold != null && Number(passingThreshold) >= 0 && (
+                    <div className="mt-1 text-xs text-gray-500">Ngưỡng đạt: {passingThreshold}%</div>
                   )}
                 </div>
-              </div>
+              </div> */}
 
               <div className="space-y-4">
                 {(examQuestions || questions).map((q, idx)=>(
@@ -244,6 +257,7 @@ export default function StudentPage({ setMode }){
                   setAnswers({})
                   setStartTime(null)
                   setTimeElapsed(0)
+                  setSubmitted(false)
                 }
               }}
             >
@@ -259,27 +273,31 @@ export default function StudentPage({ setMode }){
 }
 
 // Tracker component shows answered/unanswered status and allows jumping
-function QuestionTracker({ questions, answers, goto, sidebar, timeElapsed, timeLimitMinutes, formatTime }) {
+function QuestionTracker({ questions, answers, goto, sidebar, timeElapsed, timeLimitMinutes, formatTime, studentName }) {
   if (!questions.length) return null
   const unanswered = questions.filter(q => answers[q.id] === undefined).length
   const baseClasses = sidebar
-    ? 'sticky top-20 z-30 w-70 bg-white rounded-lg shadow p-3 border border-gray-200 h-fit'
+    ? 'sticky top-20 z-30 w-80 bg-white rounded-lg shadow p-3 border border-gray-200 h-fit'
     : 'mb-6 bg-white rounded-lg shadow p-4 sticky top-20 z-30 border border-gray-200'
   return (
     <div className={baseClasses}>
       <div className="mb-3">
-        <div className="flex items-center justify-between">
+        {sidebar && studentName && <div className="text-xl font-bold mb-2">Xin chào, <span className="text-emerald-700">{studentName}</span></div>}
+        {/* <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-800 text-xl">Danh sách câu hỏi</h3>
-        </div>
-        {sidebar && <div className="mt-1 text-base text-gray-500">Tổng số câu: {questions.length}</div>}
-        <span className="text-base text-gray-600">Chưa làm: {unanswered}</span>
+        </div> */}
+        {timeLimitMinutes != null && Number(timeLimitMinutes) > 0 && (
+          <div className="mt-1 text-base text-gray-600">Giới hạn thời gian: {timeLimitMinutes} phút</div>
+        )}
+        {sidebar && <div className="mt-1 text-base text-gray-600">Tổng số câu: {questions.length}</div>}
+        <div className="mt-1 text-base text-gray-600">Chưa làm: {unanswered}</div>
 
         {/* Timer moved here */}
         <div className="mt-2 p-2 rounded-md bg-gray-50 border border-gray-200 flex items-center justify-between">
           {(timeLimitMinutes != null && Number(timeLimitMinutes) > 0) ? (
             <>
-              <span className="text-xs text-gray-600">Còn lại</span>
-              <span className="text-lg font-mono font-semibold text-red-600">{formatTime(Math.max(timeLimitMinutes * 60 - timeElapsed, 0))}</span>
+              <span className="text-base text-gray-600">Còn lại:</span>
+              <span className="text-4xl font-mono font-semibold text-red-600">{formatTime(Math.max(timeLimitMinutes * 60 - timeElapsed, 0))}</span>
             </>
           ) : (
             <>
@@ -312,8 +330,9 @@ function QuestionTracker({ questions, answers, goto, sidebar, timeElapsed, timeL
 
 
 
-function ResultModal({ info, onClose, formatTime }) {
+function ResultModal({ info, onClose, formatTime, passingThreshold }) {
   const percent = Math.round((info.score / info.total) * 100)
+  const threshold = typeof passingThreshold === 'number' && passingThreshold >= 0 ? passingThreshold : 80
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -323,20 +342,30 @@ function ResultModal({ info, onClose, formatTime }) {
           <div className="absolute inset-0 bg-gradient-to-br from-white/90 to-white/70 opacity-30" />
           <div className="relative p-8 sm:p-10 grow flex flex-col">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-3xl font-extrabold text-gray-800">Kết quả bài làm</h3>
+              <h3 className="text-3xl font-extrabold">Kết quả bài làm</h3>
               <button onClick={onClose} className="p-2 rounded-full hover:bg-white/70" aria-label="Đóng">✕</button>
             </div>
-            <p className="text-2xl font-semibold text-white mb-6">Họ tên: <span className="font-bold text-emerald-700">{info.name || '—'}</span></p>
             <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="col-span-2 rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/60 to-white/30">
-                <div className="text-xl font-bold text-gray-900">Điểm</div>
-                <div className="mt-1 text-3xl font-extrabold text-emerald-700">{info.score}<span className="text-gray-900">/{info.total}</span></div>
-                <div className="mt-1 text-xl font-semibold text-gray-900">Tỷ lệ đúng: {percent}%</div>
+              <div className="col-span-2 rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
+                <p className="text-xl font-bold text-gray-900">Họ tên: <span className="font-bold text-emerald-700">{info.name || '—'}</span></p>
+                <div className="text-xl font-bold text-gray-900">Điểm: <span className="font-bold text-emerald-700">{info.score}<span className="text-gray-900">/{info.total}</span></span></div>
+                {/* <div className="mt-1 text-3xl font-extrabold text-emerald-700">{info.score}<span className="text-gray-900">/{info.total}</span></div> */}
+                <div className="text-xl font-bold text-gray-900">Tỷ lệ đúng: <span className="font-bold text-emerald-700">{percent}%</span></div>
+                <div className="text-xl text-gray-900">(Ngưỡng yêu cầu: {threshold}%)</div>
+                {/* <p className="text-gray-800">Ngưỡng yêu cầu: {threshold}%</p> */}
               </div>
-              <div className="rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/60 to-white/30">
+              <div className="rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
                 <div className="text-xl font-bold text-gray-900">Thời gian làm</div>
                 <div className="mt-1 text-3xl font-extrabold text-emerald-700 font-mono">{formatTime(info.timeSpent)}</div>
               </div>
+            </div>
+            <div className="rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
+              <h4 className="text-xl font-bold text-gray-900 mb-2">Nhận xét:</h4>
+              <p className="text-gray-800 text-center">
+                {percent === 100 && <><span className="text-4xl font-bold text-emerald-700">Xuất sắc</span> <br /> Hoàn hảo! Bạn trả lời đúng tất cả câu hỏi.</>}
+                {percent >= threshold && percent < 100 && <><span className="text-4xl font-bold text-emerald-700">Đạt</span> <br /> Rất tốt! Bạn đã nắm vững kiến thức.</>}
+                {percent < threshold && <><span className="text-4xl font-bold text-red-500">Chưa đạt</span> <br /> Hãy ôn tập lại và thử lại!</>}
+              </p>
             </div>
             <div className="mt-auto pt-4 flex justify-end gap-3">
               <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-white/70">Về màn hình chính</button>

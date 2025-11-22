@@ -6,6 +6,7 @@ export default function TeacherPage({ setMode }){
   const [results, setResults] = useState([])
   const [activeTab, setActiveTab] = useState('questions')
   const [timeLimit, setTimeLimit] = useState('')
+  const [passingThreshold, setPassingThreshold] = useState('')
   const [text, setText] = useState('')
   const [choices, setChoices] = useState(['','','',''])
   const [correct, setCorrect] = useState('0')
@@ -42,6 +43,9 @@ export default function TeacherPage({ setMode }){
     // load time limit
     fetch('http://localhost:3001/api/settings/time-limit').then(r=>r.json()).then(d=>{
       if (d && typeof d.minutes !== 'undefined' && d.minutes !== null) setTimeLimit(String(d.minutes))
+    }).catch(()=>{})
+    fetch('http://localhost:3001/api/settings/passing-threshold').then(r=>r.json()).then(d=>{
+      if (d && typeof d.percent !== 'undefined' && d.percent !== null) setPassingThreshold(String(d.percent))
     }).catch(()=>{})
   }, [])
 
@@ -124,6 +128,17 @@ export default function TeacherPage({ setMode }){
     alert('Đã lưu thời gian làm bài')
   }
 
+  async function savePassingThreshold(){
+    const p = Number(passingThreshold)
+    if (isNaN(p) || p < 0 || p > 100) return alert('Ngưỡng đạt phải từ 0 đến 100')
+    await fetch('http://localhost:3001/api/settings/passing-threshold', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ percent: Math.floor(p) })
+    })
+    alert('Đã lưu ngưỡng điểm đạt')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header currentMode="teacher" setMode={setMode} isFixed={true} />
@@ -153,11 +168,24 @@ export default function TeacherPage({ setMode }){
         <>
           {/* Time limit controls */}
           <section className="mb-6 bg-white p-6 rounded-lg shadow">
-            <h3 className="text-lg font-medium mb-4">Thiết lập thời gian làm bài</h3>
-            <div className="flex items-center gap-3 flex-wrap">
-              <input type="number" min="0" className="w-32 p-2 border rounded" value={timeLimit} onChange={e=>setTimeLimit(e.target.value)} placeholder="Phút" />
-              <button onClick={saveTimeLimit} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Lưu</button>
-              <span className="text-sm text-gray-500">Đặt 0 để không giới hạn</span>
+            <h3 className="text-lg font-medium mb-4">Thiết lập bài thi</h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium mb-1">Thời gian làm bài (phút)</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" className="w-28 p-2 border rounded" value={timeLimit} onChange={e=>setTimeLimit(e.target.value)} placeholder="Phút" />
+                  <button onClick={saveTimeLimit} className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">Lưu</button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Đặt 0 nếu không giới hạn thời gian</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Ngưỡng điểm đạt (%)</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" max="100" className="w-28 p-2 border rounded" value={passingThreshold} onChange={e=>setPassingThreshold(e.target.value)} placeholder="%" />
+                  <button onClick={savePassingThreshold} className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">Lưu</button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Ví dụ: nhập 80 để yêu cầu 80% số câu đúng</p>
+              </div>
             </div>
           </section>
           <section className="mb-6 bg-white p-6 rounded-lg shadow">
@@ -171,7 +199,7 @@ export default function TeacherPage({ setMode }){
             
             {showAddQuestion && (
               <>
-                <input className="w-full mb-2 p-2 border rounded" value={text} onChange={e=>setText(e.target.value)} placeholder="Nhập câu hỏi" />
+                <input className="w-full mb-2 p-2 border-3 border-blue-600 rounded" value={text} onChange={e=>setText(e.target.value)} placeholder="Nhập câu hỏi" />
                 <div className="mb-2">
                   {choices.map((c,i)=>(
                     <input key={i} className="w-full mb-1 p-2 border rounded" value={c} onChange={e=>setChoice(i,e.target.value)} placeholder={`Lựa chọn ${i+1}`} />
@@ -224,8 +252,8 @@ export default function TeacherPage({ setMode }){
           {editingId !== null && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg p-6 w-full max-w-lg">
-                <h2 className="text-xl font-semibold mb-4">Edit Question</h2>
-                <input className="w-full mb-2 p-2 border rounded" value={editText} onChange={e=>setEditText(e.target.value)} placeholder="Nhập câu hỏi" />
+                <h2 className="text-xl font-semibold mb-4">Sửa câu hỏi</h2>
+                <input className="w-full mb-2 p-2 border-3 border-blue-600 rounded" value={editText} onChange={e=>setEditText(e.target.value)} placeholder="Nhập câu hỏi" />
                 <div className="mb-2">
                   {editChoices.map((c,i)=>(
                     <input key={i} className="w-full mb-1 p-2 border rounded" value={c} onChange={e=>setEditChoice(i,e.target.value)} placeholder={`Choice ${i+1}`} />

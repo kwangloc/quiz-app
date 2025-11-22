@@ -82,8 +82,8 @@ export default function Header({ currentMode, setMode, isFixed = false }) {
 
       {/* PIN Verification Modal */}
       {showPinModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-sm">
+        <div className="fixed inset-0 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-gray-300 rounded-lg shadow-2xl p-8 w-full max-w-sm">
             <h2 className="text-2xl font-bold text-center text-gray-800 mb-2">Đăng nhập Admin</h2>
             <p className="text-center text-gray-600 mb-6">Nhập mã PIN để truy cập bảng điều khiển</p>
             

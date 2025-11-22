@@ -46,3 +46,26 @@ router.post('/time-limit', async (req, res) => {
 });
 
 module.exports = router;
+// Get passing threshold percent
+router.get('/passing-threshold', async (req, res) => {
+  try {
+    const val = await getSetting('passingThreshold');
+    const percent = val != null ? Number(val) : null;
+    res.json({ percent: isNaN(percent) ? null : percent });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Set passing threshold percent (0-100)
+router.post('/passing-threshold', async (req, res) => {
+  try {
+    const { percent } = req.body;
+    const p = Number(percent);
+    if (isNaN(p) || p < 0 || p > 100) return res.status(400).json({ error: 'percent must be between 0 and 100' });
+    await setSetting('passingThreshold', String(Math.floor(p)));
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
