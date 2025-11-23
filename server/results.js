@@ -88,4 +88,12 @@ router.delete('/:id', (req, res) => {
   );
 });
 
+// Clear all results
+router.post('/clear-all', (req, res) => {
+  db.run('DELETE FROM results', [], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, deleted: this.changes });
+  });
+});
+
 module.exports = router;

@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 const db = require('./db');
 const questions = require('./questions');
 const results = require('./results');
@@ -9,7 +10,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/questions', questions);
+// Configure multer for file uploads (max 10MB, single file field 'file')
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+app.use('/api/questions', upload.single('file'), questions);
 app.use('/api/results', results);
 app.use('/api/settings', settings);
 
