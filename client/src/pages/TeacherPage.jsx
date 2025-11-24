@@ -37,10 +37,8 @@ export default function TeacherPage({ setMode }){
   }
 
   useEffect(() => {
-    // initial load; server might still be starting in prod, so try questions immediately
     loadQuestions()
     loadResults()
-    // load time limit
     fetch('http://localhost:3001/api/settings/time-limit').then(r=>r.json()).then(d=>{
       if (d && typeof d.minutes !== 'undefined' && d.minutes !== null) setTimeLimit(String(d.minutes))
     }).catch(()=>{})
@@ -55,20 +53,62 @@ export default function TeacherPage({ setMode }){
     }
   }, [activeTab])
 
-  function addChoice(){ setChoices(prev => [...prev, '']) }
   function setChoice(i, val){ setChoices(prev => prev.map((c,idx)=> idx===i?val:c)) }
 
   async function addQuestion(){
     if (!text.trim()) return alert('Question text is required')
-    await fetch('http://localhost:3001/api/questions', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ text, choices, correct })
-    })
-    // Refresh questions list
-    const res = await fetch('http://localhost:3001/api/questions')
-    setQuestions(await res.json())
-    setText(''); setChoices(['','','','']); setCorrect('0')
+    try {
+      const res = await fetch('http://localhost:3001/api/questions', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ text, choices, correct })
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      loadQuestions()
+      setText(''); setChoices(['','','','']); setCorrect('0')
+    } catch (e) {
+      console.error('Error adding question:', e)
+      alert('Failed to add question: ' + e.message)
+    }
+  }
+
+  async function handleImportExcel(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+      const res = await fetch('http://localhost:3001/api/questions/import', {
+        method: 'POST',
+        body: formData
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      if (data.success) {
+        alert(`Đã nhập thành công ${data.count} câu hỏi`)
+        loadQuestions()
+      } else {
+        alert('Lỗi nhập file: ' + (data.error || 'Unknown error'))
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Lỗi nhập file: ' + err.message)
+    }
+    e.target.value = null
+  }
+
+  async function clearAllQuestions() {
+    if (!confirm('CẢNH BÁO: Bạn có chắc chắn muốn xóa TẤT CẢ câu hỏi? Hành động này không thể hoàn tác.')) return
+    if (!confirm('Xác nhận lần 2: Xóa toàn bộ câu hỏi?')) return
+    await fetch('http://localhost:3001/api/questions/clear-all', { method: 'DELETE' })
+    loadQuestions()
+  }
+
+  async function clearAllResults() {
+    if (!confirm('CẢNH BÁO: Bạn có chắc chắn muốn xóa TẤT CẢ kết quả thi? Hành động này không thể hoàn tác.')) return
+    if (!confirm('Xác nhận lần 2: Xóa toàn bộ kết quả?')) return
+    await fetch('http://localhost:3001/api/results/clear-all', { method: 'DELETE' })
+    loadResults()
   }
 
   function startEdit(q) {
@@ -85,9 +125,7 @@ export default function TeacherPage({ setMode }){
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ text: editText, choices: editChoices, correct: editCorrect })
     })
-    // Refresh questions list
-    const res = await fetch('http://localhost:3001/api/questions')
-    setQuestions(await res.json())
+    loadQuestions()
     setEditingId(null)
     setEditText(''); setEditChoices(['','']); setEditCorrect('0')
   }
@@ -95,9 +133,7 @@ export default function TeacherPage({ setMode }){
   async function deleteQuestion(id) {
     if (!confirm('Xác nhận xóa câu hỏi này?')) return
     await fetch(`http://localhost:3001/api/questions/${id}`, { method: 'DELETE' })
-    // Refresh questions list
-    const res = await fetch('http://localhost:3001/api/questions')
-    setQuestions(await res.json())
+    loadQuestions()
   }
 
   function setEditChoice(i, val) { setEditChoices(prev => prev.map((c,idx)=> idx===i?val:c)) }
@@ -106,9 +142,7 @@ export default function TeacherPage({ setMode }){
   async function deleteResult(id) {
     if (!confirm('Xác nhận xóa kết quả này?')) return
     await fetch(`http://localhost:3001/api/results/${id}`, { method: 'DELETE' })
-    // Refresh results list
-    const res = await fetch('http://localhost:3001/api/results')
-    setResults(await res.json())
+    loadResults()
   }
 
   async function exportResults(){
@@ -147,7 +181,6 @@ export default function TeacherPage({ setMode }){
         <div className="max-w-6xl mx-auto">
           <h2 className="text-3xl font-bold mb-6 text-gray-800">Bảng điều khiển</h2>
       
-          {/* Tab Navigation */}
           <div className="flex gap-4 mb-6 border-b">
             <button 
               onClick={() => setActiveTab('questions')}
@@ -163,10 +196,8 @@ export default function TeacherPage({ setMode }){
             </button>
           </div>
 
-          {/* Questions Tab */}
           {activeTab === 'questions' && (
         <>
-          {/* Time limit controls */}
           <section className="mb-6 bg-white p-6 rounded-lg shadow">
             <h3 className="text-lg font-medium mb-4">Thiết lập bài thi</h3>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -188,44 +219,74 @@ export default function TeacherPage({ setMode }){
               </div>
             </div>
           </section>
-          <section className="mb-6 bg-white p-6 rounded-lg shadow">
+
+          <section className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg shadow border border-blue-100">
             <button 
               onClick={() => setShowAddQuestion(!showAddQuestion)}
-              className="w-full flex justify-between items-center text-xl font-semibold mb-4 hover:text-blue-600 transition"
+              className="w-full flex justify-between items-center text-xl font-semibold mb-2 hover:text-blue-600 transition"
             >
-              <span>Thêm câu hỏi</span>
+              <span>Thêm / Nhập câu hỏi</span>
               <span className="text-xl">{showAddQuestion ? '▼' : '▶'}</span>
             </button>
             
             {showAddQuestion && (
-              <>
-                <input className="w-full mb-2 p-2 border-3 border-blue-600 rounded" value={text} onChange={e=>setText(e.target.value)} placeholder="Nhập câu hỏi" />
-                <div className="mb-2">
-                  {choices.map((c,i)=>(
-                    <input key={i} className="w-full mb-1 p-2 border rounded" value={c} onChange={e=>setChoice(i,e.target.value)} placeholder={`Lựa chọn ${i+1}`} />
-                  ))}
-                  <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    {/* <button className="px-3 py-1 border rounded mr-2 hover:bg-gray-100" onClick={addChoice}>Thêm lựa chọn</button> */}
-                    <select className="px-2 py-1 border rounded" value={correct} onChange={e=>setCorrect(e.target.value)}>
-                      {choices.map((_,i)=>(<option key={i} value={i}>{'Đáp án đúng: '+(i+1)}</option>))}
-                    </select>
-                    <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700" onClick={addQuestion}>Lưu câu hỏi</button>
+              <div className="mt-4 space-y-6">
+                <div className="bg-white p-4 rounded border">
+                  <h4 className="font-medium mb-2 text-gray-700">Nhập từ Excel</h4>
+                  <div className="flex items-center gap-4">
+                    <input 
+                      type="file" 
+                      accept=".xlsx, .xls" 
+                      onChange={handleImportExcel}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    <div className="text-xs text-gray-500">
+                      Cột 1: Câu hỏi, Cột 2-5: Đáp án A-D, Cột 6: Đáp án đúng (A/B/C/D)
+                    </div>
                   </div>
                 </div>
-              </>
+
+                <div className="bg-white p-4 rounded border">
+                  <h4 className="font-medium mb-2 text-gray-700">Thêm thủ công</h4>
+                  <input className="w-full mb-2 p-2 border-2 border-blue-200 rounded focus:border-blue-500 outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="Nhập nội dung câu hỏi..." />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                    {choices.map((c,i)=>(
+                      <input key={i} className="w-full p-2 border rounded" value={c} onChange={e=>setChoice(i,e.target.value)} placeholder={`Lựa chọn ${String.fromCharCode(65+i)}`} />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-4 mt-2">
+                    <select className="px-3 py-2 border rounded bg-white" value={correct} onChange={e=>setCorrect(e.target.value)}>
+                      {choices.map((_,i)=>(<option key={i} value={i}>{'Đáp án đúng: ' + String.fromCharCode(65+i)}</option>))}
+                    </select>
+                    <button className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium" onClick={addQuestion}>Thêm câu hỏi</button>
+                  </div>
+                </div>
+              </div>
             )}
           </section>
 
           <section className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-lg font-medium mb-4">Danh sách câu hỏi</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium">Danh sách câu hỏi ({questions.length})</h3>
+              <button 
+                onClick={clearAllQuestions}
+                className="px-3 py-1 bg-red-100 text-red-600 rounded hover:bg-red-200 text-sm font-medium"
+              >
+                Xóa tất cả câu hỏi
+              </button>
+            </div>
             <ul className="space-y-2">
               {questions.map(q=>(
                 <li key={q.id} className="p-3 border rounded hover:bg-gray-50">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <div className="font-medium text-gray-800">{q.text}</div>
-                      <div className="text-sm mt-2 text-gray-600">
-                        {q.choices.map((c,i)=> <div key={i} className="ml-4">• {c}</div>)}
+                      <div className="text-sm mt-2 text-gray-600 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                        {q.choices.map((c,i)=> (
+                          <div key={i} className={`${String(i) === String(q.correct) ? 'text-green-600 font-medium' : ''}`}>
+                            {String.fromCharCode(65+i)}. {c} {String(i) === String(q.correct) && '✓'}
+                          </div>
+                        ))}
                       </div>
                     </div>
                     <div className="flex gap-2 ml-4 flex-shrink-0">
@@ -248,7 +309,6 @@ export default function TeacherPage({ setMode }){
             </ul>
           </section>
 
-          {/* Edit Question Modal */}
           {editingId !== null && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg p-6 w-full max-w-lg">
@@ -275,7 +335,6 @@ export default function TeacherPage({ setMode }){
         </>
       )}
 
-      {/* Results Tab */}
       {activeTab === 'results' && (
         <section className="bg-white p-6 rounded-lg shadow">
           <div className="flex justify-between items-center mb-4">
@@ -283,6 +342,12 @@ export default function TeacherPage({ setMode }){
             <div className="flex gap-2">
               <button className="px-4 py-2 border rounded hover:bg-gray-100" onClick={loadResults}>Cập nhật</button>
               <button className="px-4 py-2 border rounded hover:bg-gray-100" onClick={exportResults}>Xuất kết quả (Excel)</button>
+              <button 
+                onClick={clearAllResults}
+                className="px-4 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 font-medium"
+              >
+                Xóa tất cả
+              </button>
             </div>
           </div>
           {results.length === 0 ? (

@@ -13,6 +13,12 @@ app.use('/api/questions', questions);
 app.use('/api/results', results);
 app.use('/api/settings', settings);
 
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled server error:', err);
+  res.status(500).json({ error: err.message });
+});
+
 const PORT = process.env.PORT || 3001;
 
 db.ready.then(() => {
