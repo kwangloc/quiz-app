@@ -31,6 +31,7 @@ function createWindow() {
     // Start maximized (shows native close/minimize controls) instead of fullscreen
     try { win.maximize(); } catch {}
     win.show();
+    win.focus();
   });
 
   // Minimal diagnostics retained (no devtools)
@@ -105,5 +106,7 @@ app.on('browser-window-blur', () => {
 app.on('activate', () => {
   if (win === null) {
     createWindow();
+  } else {
+    win.focus();
   }
 });

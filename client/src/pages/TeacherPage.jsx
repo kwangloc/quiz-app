@@ -7,6 +7,7 @@ export default function TeacherPage({ setMode }){
   const [activeTab, setActiveTab] = useState('questions')
   const [timeLimit, setTimeLimit] = useState('')
   const [passingThreshold, setPassingThreshold] = useState('')
+  const [examTitle, setExamTitle] = useState('')
   const [text, setText] = useState('')
   const [choices, setChoices] = useState(['','','',''])
   const [correct, setCorrect] = useState('0')
@@ -18,6 +19,18 @@ export default function TeacherPage({ setMode }){
   const [importFile, setImportFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
+  const [notification, setNotification] = useState(null)
+
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [notification])
+
+  function showNotification(message, type = 'success') {
+    setNotification({ message, type })
+  }
 
   async function loadQuestions() {
     try {
@@ -50,6 +63,9 @@ export default function TeacherPage({ setMode }){
     fetch('http://localhost:3001/api/settings/passing-threshold').then(r=>r.json()).then(d=>{
       if (d && typeof d.percent !== 'undefined' && d.percent !== null) setPassingThreshold(String(d.percent))
     }).catch(()=>{})
+    fetch('http://localhost:3001/api/settings/exam-title').then(r=>r.json()).then(d=>{
+      if (d && d.title) setExamTitle(d.title)
+    }).catch(()=>{})
   }, [])
 
   useEffect(() => {
@@ -62,7 +78,7 @@ export default function TeacherPage({ setMode }){
   function setChoice(i, val){ setChoices(prev => prev.map((c,idx)=> idx===i?val:c)) }
 
   async function addQuestion(){
-    if (!text.trim()) return alert('Question text is required')
+    if (!text.trim()) return showNotification('Nội dung câu hỏi là bắt buộc', 'error')
     await fetch('http://localhost:3001/api/questions', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -72,6 +88,7 @@ export default function TeacherPage({ setMode }){
     const res = await fetch('http://localhost:3001/api/questions')
     setQuestions(await res.json())
     setText(''); setChoices(['','','','']); setCorrect('0')
+    showNotification('Đã thêm câu hỏi')
   }
 
   function startEdit(q) {
@@ -82,7 +99,7 @@ export default function TeacherPage({ setMode }){
   }
 
   async function saveEdit() {
-    if (!editText.trim()) return alert('Question text is required')
+    if (!editText.trim()) return showNotification('Nội dung câu hỏi là bắt buộc', 'error')
     await fetch(`http://localhost:3001/api/questions/${editingId}`, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
@@ -93,6 +110,7 @@ export default function TeacherPage({ setMode }){
     setQuestions(await res.json())
     setEditingId(null)
     setEditText(''); setEditChoices(['','']); setEditCorrect('0')
+    showNotification('Đã cập nhật câu hỏi')
   }
 
   async function deleteQuestion(id) {
@@ -122,28 +140,38 @@ export default function TeacherPage({ setMode }){
 
   async function saveTimeLimit(){
     const m = Number(timeLimit)
-    if (isNaN(m) || m < 0) return alert('Thời gian phải là số phút không âm')
+    if (isNaN(m) || m < 0) return showNotification('Thời gian phải là số phút không âm', 'error')
     await fetch('http://localhost:3001/api/settings/time-limit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ minutes: Math.floor(m) })
     })
-    alert('Đã lưu thời gian làm bài')
+    showNotification('Đã lưu thời gian làm bài')
   }
 
   async function savePassingThreshold(){
     const p = Number(passingThreshold)
-    if (isNaN(p) || p < 0 || p > 100) return alert('Ngưỡng đạt phải từ 0 đến 100')
+    if (isNaN(p) || p < 0 || p > 100) return showNotification('Ngưỡng đạt phải từ 0 đến 100', 'error')
     await fetch('http://localhost:3001/api/settings/passing-threshold', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ percent: Math.floor(p) })
     })
-    alert('Đã lưu ngưỡng điểm đạt')
+    showNotification('Đã lưu ngưỡng điểm đạt')
+  }
+
+  async function saveExamTitle(){
+    if (!examTitle.trim()) return showNotification('Tiêu đề không được để trống', 'error')
+    await fetch('http://localhost:3001/api/settings/exam-title', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: examTitle.trim() })
+    })
+    showNotification('Đã lưu tiêu đề bài thi')
   }
 
   async function handleImportExcel(){
-    if (!importFile) return alert('Vui lòng chọn file Excel')
+    if (!importFile) return showNotification('Vui lòng chọn file Excel', 'error')
     setImporting(true)
     setImportResult(null)
     
@@ -177,9 +205,9 @@ export default function TeacherPage({ setMode }){
     try {
       await fetch('http://localhost:3001/api/questions/clear-all', { method: 'POST' })
       loadQuestions()
-      alert('Đã xóa tất cả câu hỏi')
+      showNotification('Đã xóa tất cả câu hỏi')
     } catch (e) {
-      alert('Lỗi khi xóa câu hỏi: ' + e.message)
+      showNotification('Lỗi khi xóa câu hỏi: ' + e.message, 'error')
     }
   }
 
@@ -188,15 +216,27 @@ export default function TeacherPage({ setMode }){
     try {
       await fetch('http://localhost:3001/api/results/clear-all', { method: 'POST' })
       loadResults()
-      alert('Đã xóa tất cả kết quả')
+      showNotification('Đã xóa tất cả kết quả')
     } catch (e) {
-      alert('Lỗi khi xóa kết quả: ' + e.message)
+      showNotification('Lỗi khi xóa kết quả: ' + e.message, 'error')
     }
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header currentMode="teacher" setMode={setMode} isFixed={true} />
+
+      {/* Notification Toast */}
+      {notification && (
+        <div className={`fixed top-24 right-6 z-50 px-6 py-3 rounded-lg shadow-xl border-l-4 transition-all transform translate-y-0 opacity-100 ${
+          notification.type === 'error' ? 'bg-red-100 border-red-500 text-red-800' : 'bg-green-100 border-green-500 text-green-800'
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className="text-xl">{notification.type === 'error' ? '⚠️' : '✅'}</span>
+            <span className="font-medium">{notification.message}</span>
+          </div>
+        </div>
+      )}
 
       <div className="pt-20 p-6">
         <div className="max-w-6xl mx-auto">
@@ -224,6 +264,13 @@ export default function TeacherPage({ setMode }){
           {/* Time limit controls */}
           <section className="mb-6 p-6 rounded-lg shadow-lg border-2 border-blue-200">
             <h3 className="text-2xl font-bold mb-4 text-blue-900 ">Thiết lập bài thi</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1">Tiêu đề bài thi</label>
+              <div className="flex items-center gap-2">
+                <input type="text" className="flex-1 p-2 border rounded" value={examTitle} onChange={e=>setExamTitle(e.target.value)} placeholder="Nhập tiêu đề bài thi" />
+                <button onClick={saveExamTitle} className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">Lưu</button>
+              </div>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium mb-1">Thời gian làm bài (phút)</label>
@@ -430,9 +477,10 @@ export default function TeacherPage({ setMode }){
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-gray-100 border-b">
+                  <tr className="bg-gray-100 border-b text-center">
                     <th className="px-4 py-3 font-semibold text-gray-700">Tên</th>
-                    <th className="px-4 py-3 font-semibold text-gray-700">Điểm</th>
+                    <th className="px-4 py-3 font-semibold text-gray-700">Số câu đúng</th>
+                    <th className="px-4 py-3 font-semibold text-gray-700">Tỷ lệ đúng</th>
                     <th className="px-4 py-3 font-semibold text-gray-700">Thời gian bắt đầu</th>
                     <th className="px-4 py-3 font-semibold text-gray-700">Thời gian nộp</th>
                     <th className="px-4 py-3 font-semibold text-gray-700">Thời gian làm</th>
@@ -442,9 +490,10 @@ export default function TeacherPage({ setMode }){
                 </thead>
                 <tbody>
                   {results.map(result => (
-                    <tr key={result.id} className="border-b hover:bg-gray-50">
+                    <tr key={result.id} className="border-b hover:bg-gray-50 text-center">
                       <td className="px-4 py-3 text-gray-800">{result.studentName}</td>
                       <td className="px-4 py-3 font-medium text-blue-600">{result.score}</td>
+                      <td className="px-4 py-3 font-medium text-blue-600">{result.percent != null ? result.percent + '%' : 'N/A'}</td>
                       <td className="px-4 py-3 text-gray-600 text-sm">{result.startTime ? new Date(result.startTime).toLocaleString() : 'N/A'}</td>
                       <td className="px-4 py-3 text-gray-600 text-sm">{result.submitTime ? new Date(result.submitTime).toLocaleString() : 'N/A'}</td>
                       <td className="px-4 py-3 text-gray-600 font-mono">

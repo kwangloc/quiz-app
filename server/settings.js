@@ -45,7 +45,6 @@ router.post('/time-limit', async (req, res) => {
   }
 });
 
-module.exports = router;
 // Get passing threshold percent
 router.get('/passing-threshold', async (req, res) => {
   try {
@@ -69,3 +68,27 @@ router.post('/passing-threshold', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// Get exam title
+router.get('/exam-title', async (req, res) => {
+  try {
+    const val = await getSetting('examTitle');
+    res.json({ title: val || 'Kiểm tra kiến thức' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Set exam title
+router.post('/exam-title', async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
+    await setSetting('examTitle', title.trim());
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+module.exports = router;

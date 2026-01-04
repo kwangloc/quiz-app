@@ -45,6 +45,7 @@ async function init() {
     studentName TEXT,
     answers TEXT,
     score INTEGER,
+    percent INTEGER,
     createdAt TEXT,
     startTime TEXT,
     submitTime TEXT,
@@ -67,6 +68,7 @@ async function init() {
       if (!existingCols.has('startTime')) toAdd.push({ name: 'startTime', type: 'TEXT' });
       if (!existingCols.has('submitTime')) toAdd.push({ name: 'submitTime', type: 'TEXT' });
       if (!existingCols.has('timeSpent')) toAdd.push({ name: 'timeSpent', type: 'INTEGER' });
+      if (!existingCols.has('percent')) toAdd.push({ name: 'percent', type: 'INTEGER' });
       toAdd.forEach(col => {
         try { db.exec(`ALTER TABLE results ADD COLUMN ${col.name} ${col.type};`); } catch (e) {}
       });
