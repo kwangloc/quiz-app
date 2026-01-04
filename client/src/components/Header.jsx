@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import logo from '../assets/images/logo.png'
 
-const TEACHER_PIN = '1234'
+const TEACHER_PIN = '1317'
 
 export default function Header({ currentMode, setMode, isFixed = false }) {
   const [showPinModal, setShowPinModal] = useState(false)

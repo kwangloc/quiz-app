@@ -1,5 +1,7 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const db = require('./db');
 const ExcelJS = require('exceljs');
 const router = express.Router();
@@ -19,13 +21,14 @@ function formatTimeOnly(iso) {
 }
 
 router.post('/', (req, res) => {
-  const { studentName, answers, score, startTime, submitTime, timeSpent } = req.body;
+  const { studentName, answers, score, total, startTime, submitTime, timeSpent } = req.body;
   if (!studentName) {
     return res.status(400).json({ error: 'studentName is required' });
   }
+  const percent = total > 0 ? Math.round((score / total) * 100) : 0;
   db.run(
-    'INSERT INTO results(studentName, answers, score, createdAt, startTime, submitTime, timeSpent) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [studentName, JSON.stringify(answers), score, new Date().toISOString(), startTime, submitTime, timeSpent],
+    'INSERT INTO results(studentName, answers, score, percent, createdAt, startTime, submitTime, timeSpent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [studentName, JSON.stringify(answers), score, percent, new Date().toISOString(), startTime, submitTime, timeSpent],
     function (err) {
       if (err) {
         console.error('Insert result error:', err);
@@ -56,13 +59,15 @@ router.get('/export', async (req, res) => {
       { header: 'Thời gian bắt đầu', key: 'startTime', width: 14 },
       { header: 'Thời gian nộp', key: 'submitTime', width: 14 },
       { header: 'Thời gian làm (giây)', key: 'timeSpent', width: 18 },
-      { header: 'Điểm', key: 'score', width: 10 },
+      { header: 'Số câu đúng', key: 'score', width: 10 },
+      { header: 'Tỷ lệ đúng (%)', key: 'percent', width: 15 },
     ];
 
     rows.forEach(r => {
       sheet.addRow({
         studentName: r.studentName,
         score: r.score,
+        percent: r.percent,
         startTime: formatTimeOnly(r.startTime),
         submitTime: formatTimeOnly(r.submitTime),
         timeSpent: r.timeSpent ?? 'N/A',
@@ -70,9 +75,17 @@ router.get('/export', async (req, res) => {
       });
     });
 
-    const tmpPath = path.join(__dirname, 'results_export.xlsx');
-    await workbook.xlsx.writeFile(tmpPath);
-    res.download(tmpPath);
+    try {
+      const tmpPath = path.join(os.tmpdir(), `ket_qua_thi_${Date.now()}.xlsx`);
+      await workbook.xlsx.writeFile(tmpPath);
+      res.download(tmpPath, 'ket_qua_thi.xlsx', (err) => {
+        if (err) console.error('Download error:', err);
+        try { fs.unlinkSync(tmpPath); } catch (e) {}
+      });
+    } catch (e) {
+      console.error('Export error:', e);
+      res.status(500).json({ error: e.message });
+    }
   });
 });
 
@@ -86,6 +99,14 @@ router.delete('/:id', (req, res) => {
       res.json({ success: true });
     }
   );
+});
+
+// Clear all results
+router.post('/clear-all', (req, res) => {
+  db.run('DELETE FROM results', [], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, deleted: this.changes });
+  });
 });
 
 module.exports = router;

@@ -17,6 +17,9 @@ export default function StudentPage({ setMode }){
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(null)
   const [passingThreshold, setPassingThreshold] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [examTitle, setExamTitle] = useState('Kiểm tra kiến thức')
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false)
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
   useEffect(()=>{ 
     fetch('http://localhost:3001/api/questions').then(r=>r.json()).then(setQuestions)
@@ -27,6 +30,10 @@ export default function StudentPage({ setMode }){
     fetch('http://localhost:3001/api/settings/passing-threshold')
       .then(r=>r.json())
       .then(d=> setPassingThreshold(d && d.percent != null ? Number(d.percent) : null))
+      .catch(()=>{})
+    fetch('http://localhost:3001/api/settings/exam-title')
+      .then(r=>r.json())
+      .then(d=> { if(d && d.title) setExamTitle(d.title) })
       .catch(()=>{})
   }, [])
 
@@ -48,7 +55,7 @@ export default function StudentPage({ setMode }){
   }, [timeElapsed, timeLimitMinutes, submitted, startTime, isSubmitting])
 
   function startExam() {
-    if (!name.trim()) return alert('Please enter your name')
+    if (!name.trim()) return alert('Vui lòng nhập tên của bạn')
     // Ensure previous submission state is cleared for a fresh attempt
     setSubmitted(false)
     // Shuffle questions and choices per attempt
@@ -100,6 +107,7 @@ export default function StudentPage({ setMode }){
           studentName: name, 
           answers, 
           score,
+          total: activeQs.length,
           startTime: startTime.toISOString(),
           submitTime: submitTime.toISOString(),
           timeSpent: timeElapsed
@@ -118,10 +126,20 @@ export default function StudentPage({ setMode }){
         timeSpent: timeElapsed,
       })
     } catch (e) {
-      alert('Failed to submit. Please ensure the app server is running. Error: '+e.message)
+      alert('Không thể nộp bài. Vui lòng kiểm tra kết nối máy chủ. Lỗi: '+e.message)
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  function handleQuit() {
+    setStarted(false)
+    setName('')
+    setAnswers({})
+    setStartTime(null)
+    setTimeElapsed(0)
+    setSubmitted(false)
+    setShowQuitConfirm(false)
   }
 
 {/* <div className="absolute inset-0 bg-center bg-cover bg-no-repeat blur-sm" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }} > */}
@@ -129,18 +147,18 @@ export default function StudentPage({ setMode }){
   // Show start screen if not started
   if (!started) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
+      <div className="min-h-screen bg-gradient-to-br from-green-600 to-green-800">
         <Header currentMode="student" setMode={setMode} isFixed={false} />
 
           <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
             <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
-              <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">Kiểm tra kiến thức dành cho thợ sửa động cơ M500</h2>
-              <p className="text-center text-gray-600 mb-8">Năm 2025</p>
+              <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">{examTitle}</h2>
             
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Nhập tên của bạn:</label>
               <input
                 type="text"
+                autoFocus
                 value={name}
                 onChange={e => setName(e.target.value)}
                 onKeyPress={e => e.key === 'Enter' && startExam()}
@@ -244,22 +262,13 @@ export default function StudentPage({ setMode }){
               <div className="mt-6 flex gap-3">
             <button 
               className="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition" 
-              onClick={submit}
+              onClick={() => setShowSubmitConfirm(true)}
             >
               Nộp bài
             </button>
             <button 
               className="px-4 py-3 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition" 
-              onClick={() => {
-                if (confirm('Bạn có muốn thoát và hủy bài làm hiện tại không?')) {
-                  setStarted(false)
-                  setName('')
-                  setAnswers({})
-                  setStartTime(null)
-                  setTimeElapsed(0)
-                  setSubmitted(false)
-                }
-              }}
+              onClick={() => setShowQuitConfirm(true)}
             >
               Thoát
             </button>
@@ -267,6 +276,57 @@ export default function StudentPage({ setMode }){
             </div>
           </div>
         </div>
+
+        {/* Submit Confirmation Modal */}
+        {showSubmitConfirm && (
+          <div className="fixed inset-0 bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Xác nhận nộp bài</h3>
+              <p className="text-gray-600 mb-6">Bạn có chắc chắn muốn nộp bài thi không?</p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowSubmitConfirm(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
+                >
+                  Hủy
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowSubmitConfirm(false)
+                    submit()
+                  }}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                >
+                  Nộp bài
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Quit Confirmation Modal */}
+        {showQuitConfirm && (
+          <div className="fixed inset-0 bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Xác nhận thoát</h3>
+              <p className="text-gray-600 mb-6">Bạn có chắc chắn muốn thoát và hủy bài làm hiện tại không?</p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowQuitConfirm(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
+                >
+                  Hủy
+                </button>
+                <button 
+                  onClick={handleQuit}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
+                >
+                  Thoát
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -337,13 +397,13 @@ function ResultModal({ info, onClose, formatTime, passingThreshold }) {
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 w-full max-w-4xl mx-4">
-        <div className="relative overflow-hidden rounded-2xl shadow-2xl border border-emerald-200 min-h-[500px] flex flex-col">
-          <div className="absolute inset-0 bg-center bg-cover bg-no-repeat blur-sm" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }} />
-          <div className="absolute inset-0 bg-gradient-to-br from-white/90 to-white/70 opacity-30" />
+        <div className="relative overflow-hidden rounded-xl shadow-2xl min-h-[450px] flex flex-col bg-white border-3 border-gray-700">
+          <div className="absolute inset-0 bg-center bg-cover bg-no-repeat blur-xs" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }} />
+          <div className="absolute inset-0 bg-gradient-to-br from-white/90 to-white/70 opacity-10" />
           <div className="relative p-8 sm:p-10 grow flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-3xl font-extrabold">Kết quả bài làm</h3>
-              <button onClick={onClose} className="p-2 rounded-full hover:bg-white/70" aria-label="Đóng">✕</button>
+            <div className="relative flex items-center justify-center mb-4">
+              <h3 className="text-4xl font-extrabold text-center ">Kết quả bài làm</h3>
+              <button onClick={onClose} className="absolute right-0 p-2 rounded-full hover:bg-white/70" aria-label="Đóng">✕</button>
             </div>
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="col-span-2 rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
