@@ -27,8 +27,8 @@ router.post('/', (req, res) => {
   }
   const percent = total > 0 ? Math.round((score / total) * 100) : 0;
   db.run(
-    'INSERT INTO results(studentName, answers, score, percent, createdAt, startTime, submitTime, timeSpent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [studentName, JSON.stringify(answers), score, percent, new Date().toISOString(), startTime, submitTime, timeSpent],
+    'INSERT INTO results(studentName, answers, score, total, percent, createdAt, startTime, submitTime, timeSpent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [studentName, JSON.stringify(answers), score, total, percent, new Date().toISOString(), startTime, submitTime, timeSpent],
     function (err) {
       if (err) {
         console.error('Insert result error:', err);
@@ -60,6 +60,7 @@ router.get('/export', async (req, res) => {
       { header: 'Thời gian nộp', key: 'submitTime', width: 14 },
       { header: 'Thời gian làm (giây)', key: 'timeSpent', width: 18 },
       { header: 'Số câu đúng', key: 'score', width: 10 },
+      { header: 'Tổng số câu', key: 'total', width: 10 },
       { header: 'Tỷ lệ đúng (%)', key: 'percent', width: 15 },
     ];
 
@@ -67,6 +68,7 @@ router.get('/export', async (req, res) => {
       sheet.addRow({
         studentName: r.studentName,
         score: r.score,
+        total: r.total || 'N/A',
         percent: r.percent,
         startTime: formatTimeOnly(r.startTime),
         submitTime: formatTimeOnly(r.submitTime),

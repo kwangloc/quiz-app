@@ -20,6 +20,7 @@ export default function StudentPage({ setMode }){
   const [examTitle, setExamTitle] = useState('Kiểm tra kiến thức')
   const [showQuitConfirm, setShowQuitConfirm] = useState(false)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
+  const [numQuestionsLimit, setNumQuestionsLimit] = useState(null)
 
   useEffect(()=>{ 
     fetch('http://localhost:3001/api/questions').then(r=>r.json()).then(setQuestions)
@@ -34,6 +35,10 @@ export default function StudentPage({ setMode }){
     fetch('http://localhost:3001/api/settings/exam-title')
       .then(r=>r.json())
       .then(d=> { if(d && d.title) setExamTitle(d.title) })
+      .catch(()=>{})
+    fetch('http://localhost:3001/api/settings/num-questions')
+      .then(r=>r.json())
+      .then(d=> setNumQuestionsLimit(d && d.num != null ? Number(d.num) : null))
       .catch(()=>{})
   }, [])
 
@@ -67,7 +72,12 @@ export default function StudentPage({ setMode }){
       }
       return a
     }
-    const shuffled = shuffle(questions).map(q => {
+    // Apply question limit if set
+    let questionsToUse = questions
+    if (numQuestionsLimit && numQuestionsLimit > 0 && numQuestionsLimit < questions.length) {
+      questionsToUse = shuffle(questions).slice(0, numQuestionsLimit)
+    }
+    const shuffled = shuffle(questionsToUse).map(q => {
       const withIdx = (q.choices || []).map((t, idx) => ({ t, idx }))
       const sc = shuffle(withIdx)
       const newChoices = sc.map(c => c.t)

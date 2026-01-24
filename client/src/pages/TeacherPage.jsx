@@ -8,6 +8,7 @@ export default function TeacherPage({ setMode }) {
   const [timeLimit, setTimeLimit] = useState("");
   const [passingThreshold, setPassingThreshold] = useState("");
   const [examTitle, setExamTitle] = useState("");
+  const [numQuestions, setNumQuestions] = useState("");
   const [text, setText] = useState("");
   const [choices, setChoices] = useState(["", "", "", ""]);
   const [correct, setCorrect] = useState("0");
@@ -75,6 +76,12 @@ export default function TeacherPage({ setMode }) {
       .then((r) => r.json())
       .then((d) => {
         if (d && d.title) setExamTitle(d.title);
+      })
+      .catch(() => {});
+    fetch("http://localhost:3001/api/settings/num-questions")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && typeof d.num !== "undefined" && d.num !== null) setNumQuestions(String(d.num));
       })
       .catch(() => {});
   }, []);
@@ -204,6 +211,20 @@ export default function TeacherPage({ setMode }) {
       body: JSON.stringify({ title: examTitle.trim() }),
     });
     showNotification("Đã lưu tiêu đề bài thi");
+  }
+
+  async function saveNumQuestions() {
+    const n = Number(numQuestions);
+    if (isNaN(n) || n < 1)
+      return showNotification("Số câu hỏi phải là số dương", "error");
+    if (n > questions.length)
+      return showNotification(`Số câu hỏi không được vượt quá ${questions.length}`, "error");
+    await fetch("http://localhost:3001/api/settings/num-questions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ num: Math.floor(n) }),
+    });
+    showNotification("Đã lưu số câu hỏi trong bài thi");
   }
 
   async function handleImportExcel() {
@@ -393,6 +414,32 @@ export default function TeacherPage({ setMode }) {
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Ví dụ: nhập 80 để yêu cầu 80% số câu đúng
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      Số câu hỏi trong bài thi
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        className="w-28 p-2 border rounded"
+                        value={numQuestions}
+                        onChange={(e) => setNumQuestions(e.target.value)}
+                        placeholder="Số câu"
+                      />
+                      <button
+                        onClick={saveNumQuestions}
+                        className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                      >
+                        Lưu
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Chọn từ {questions.length} câu trong ngân hàng
                     </p>
                   </div>
                 </div>
@@ -691,6 +738,9 @@ export default function TeacherPage({ setMode }) {
                           Số câu đúng
                         </th>
                         <th className="px-4 py-3 font-semibold text-gray-700">
+                          Tổng số câu
+                        </th>
+                        <th className="px-4 py-3 font-semibold text-gray-700">
                           Tỷ lệ đúng
                         </th>
                         <th className="px-4 py-3 font-semibold text-gray-700">
@@ -721,6 +771,9 @@ export default function TeacherPage({ setMode }) {
                           </td>
                           <td className="px-4 py-3 font-medium text-blue-600">
                             {result.score}
+                          </td>
+                          <td className="px-4 py-3 font-medium text-blue-600">
+                            {result.total || 'N/A'}
                           </td>
                           <td className="px-4 py-3 font-medium text-blue-600">
                             {result.percent != null
