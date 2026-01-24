@@ -28,8 +28,8 @@ A simple offline quiz application built with Electron Desktop App
    npm run dev
    ```
 
-Open the app window (it will open automatically). By default the client runs on http://localhost:5173 and server on http://localhost:3000.
-Open the app window (it will open automatically). By default the client runs on http://localhost:5173 and the server on http://localhost:3001.
+
+Open the app window. By default the client runs on http://localhost:5173 and the server on http://localhost:3001.
 
 ## Usage
 - Teacher

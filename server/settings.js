@@ -91,4 +91,28 @@ router.post('/exam-title', async (req, res) => {
   }
 });
 
+// Get number of questions for the exam
+router.get('/num-questions', async (req, res) => {
+  try {
+    const val = await getSetting('numQuestions');
+    const num = val != null ? Number(val) : null;
+    res.json({ num: isNaN(num) ? null : num });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Set number of questions for the exam
+router.post('/num-questions', async (req, res) => {
+  try {
+    const { num } = req.body;
+    const n = Number(num);
+    if (isNaN(n) || n < 1) return res.status(400).json({ error: 'num must be a positive number' });
+    await setSetting('numQuestions', String(Math.floor(n)));
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
