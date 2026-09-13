@@ -5,6 +5,8 @@ const RESULT_BG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' 
 import logo from '../assets/images/bg.jpg'
 
 export default function StudentPage({ setMode }){
+  const [exams, setExams] = useState([])
+  const [selectedExam, setSelectedExam] = useState(null)
   const [questions, setQuestions] = useState([])
   const [examQuestions, setExamQuestions] = useState(null)
   const [name, setName] = useState('')
@@ -14,33 +16,18 @@ export default function StudentPage({ setMode }){
   const [submitted, setSubmitted] = useState(false)
   const [started, setStarted] = useState(false)
   const [resultInfo, setResultInfo] = useState(null)
-  const [timeLimitMinutes, setTimeLimitMinutes] = useState(null)
-  const [passingThreshold, setPassingThreshold] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [examTitle, setExamTitle] = useState('Kiểm tra kiến thức')
   const [showQuitConfirm, setShowQuitConfirm] = useState(false)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
-  const [numQuestionsLimit, setNumQuestionsLimit] = useState(null)
 
-  useEffect(()=>{ 
-    fetch('http://localhost:3001/api/questions').then(r=>r.json()).then(setQuestions)
-    fetch('http://localhost:3001/api/settings/time-limit')
-      .then(r=>r.json())
-      .then(d=> setTimeLimitMinutes(d && d.minutes != null ? Number(d.minutes) : null))
-      .catch(()=>{})
-    fetch('http://localhost:3001/api/settings/passing-threshold')
-      .then(r=>r.json())
-      .then(d=> setPassingThreshold(d && d.percent != null ? Number(d.percent) : null))
-      .catch(()=>{})
-    fetch('http://localhost:3001/api/settings/exam-title')
-      .then(r=>r.json())
-      .then(d=> { if(d && d.title) setExamTitle(d.title) })
-      .catch(()=>{})
-    fetch('http://localhost:3001/api/settings/num-questions')
-      .then(r=>r.json())
-      .then(d=> setNumQuestionsLimit(d && d.num != null ? Number(d.num) : null))
-      .catch(()=>{})
+  useEffect(()=>{
+    fetch('http://localhost:3001/api/exams').then(r=>r.json()).then(setExams).catch(()=>{})
   }, [])
+
+  function selectExam(exam) {
+    setSelectedExam(exam)
+    fetch(`http://localhost:3001/api/questions?examId=${exam.id}`).then(r=>r.json()).then(setQuestions).catch(()=>{})
+  }
 
   useEffect(() => {
     if (submitted || !startTime) return
@@ -52,12 +39,13 @@ export default function StudentPage({ setMode }){
 
   // Auto-submit when time limit reached
   useEffect(() => {
+    const timeLimitMinutes = selectedExam?.timeLimitMinutes
     const limit = (timeLimitMinutes != null && !isNaN(timeLimitMinutes)) ? timeLimitMinutes * 60 : null
     if (!startTime || submitted || isSubmitting || !limit || limit <= 0) return
     if (timeElapsed >= limit) {
       submit()
     }
-  }, [timeElapsed, timeLimitMinutes, submitted, startTime, isSubmitting])
+  }, [timeElapsed, selectedExam, submitted, startTime, isSubmitting])
 
   function startExam() {
     if (!name.trim()) return alert('Vui lòng nhập tên của bạn')
@@ -73,6 +61,7 @@ export default function StudentPage({ setMode }){
       return a
     }
     // Apply question limit if set
+    const numQuestionsLimit = selectedExam?.numQuestions
     let questionsToUse = questions
     if (numQuestionsLimit && numQuestionsLimit > 0 && numQuestionsLimit < questions.length) {
       questionsToUse = shuffle(questions).slice(0, numQuestionsLimit)
@@ -113,9 +102,10 @@ export default function StudentPage({ setMode }){
       const res = await fetch('http://localhost:3001/api/results', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ 
-          studentName: name, 
-          answers, 
+        body: JSON.stringify({
+          studentName: name,
+          examId: selectedExam?.id,
+          answers,
           score,
           total: activeQs.length,
           startTime: startTime.toISOString(),
@@ -152,18 +142,53 @@ export default function StudentPage({ setMode }){
     setShowQuitConfirm(false)
   }
 
-{/* <div className="absolute inset-0 bg-center bg-cover bg-no-repeat blur-sm" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }} > */}
+  // Show exam picker if no exam has been selected yet
+  if (!selectedExam) {
+    return (
+      <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
+        <Header currentMode="student" setMode={setMode} isFixed={false} />
 
-  // Show start screen if not started
+        <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
+          <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg">
+            <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">Chọn bài thi</h2>
+            {exams.length === 0 ? (
+              <p className="text-center text-gray-500">Chưa có bài thi nào. Vui lòng liên hệ quản trị viên.</p>
+            ) : (
+              <div className="space-y-3">
+                {exams.map(exam => (
+                  <button
+                    key={exam.id}
+                    onClick={() => selectExam(exam)}
+                    className="w-full text-left px-5 py-4 border-2 border-gray-200 rounded-lg hover:border-green-600 hover:bg-green-50 transition flex items-center justify-between"
+                  >
+                    <span className="font-semibold text-gray-800">{exam.title}</span>
+                    <span className="text-sm text-gray-500 whitespace-nowrap ml-3">{exam.questionCount ?? 0} câu hỏi</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <p className="absolute bottom-3 inset-x-0 text-center">
+          <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm shadow-lg ring-1 ring-white/20 text-white/90 text-sm font-medium tracking-wide">
+            <span className="text-amber-300">✦</span>
+            Designed by <span className="font-semibold text-white">Quốc Vinh</span>
+          </span>
+        </p>
+      </div>
+    )
+  }
+
+  // Show start screen if exam selected but not started
   if (!started) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-600 to-green-800">
+      <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
         <Header currentMode="student" setMode={setMode} isFixed={false} />
 
           <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
             <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
-              <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">{examTitle}</h2>
-            
+              <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">{selectedExam.title}</h2>
+
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Nhập tên của bạn:</label>
               <input
@@ -183,8 +208,20 @@ export default function StudentPage({ setMode }){
             >
               Bắt đầu làm bài
             </button>
+            <button
+              onClick={() => setSelectedExam(null)}
+              className="w-full mt-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition"
+            >
+              ← Đổi bài thi
+            </button>
           </div>
           </div>
+          <p className="absolute bottom-3 inset-x-0 text-center">
+            <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm shadow-lg ring-1 ring-white/20 text-white/90 text-sm font-medium tracking-wide">
+              <span className="text-amber-300">✦</span>
+              Designed by <span className="font-semibold text-white">Quốc Vinh</span>
+            </span>
+          </p>
       </div>
     )
   }
@@ -199,23 +236,23 @@ export default function StudentPage({ setMode }){
         <div className="max-w-6xl mx-auto">
           <div className="flex gap-6">
             {/* Sidebar Tracker now includes timer */}
-            <QuestionTracker 
-              sidebar 
+            <QuestionTracker
+              sidebar
               studentName={name}
-              questions={examQuestions || questions} 
-              answers={answers} 
+              questions={examQuestions || questions}
+              answers={answers}
               timeElapsed={timeElapsed}
-              timeLimitMinutes={timeLimitMinutes}
+              timeLimitMinutes={selectedExam?.timeLimitMinutes}
               formatTime={formatTime}
               goto={(id) => {
               const el = document.getElementById('question-'+id)
               if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }} 
+            }}
             />
             <div className="flex-1">
               {resultInfo && (
-                <ResultModal 
-                  info={resultInfo} 
+                <ResultModal
+                  info={resultInfo}
                   onClose={() => {
                     setResultInfo(null)
                     setStarted(false)
@@ -227,22 +264,9 @@ export default function StudentPage({ setMode }){
                     setSubmitted(false)
                   }}
                   formatTime={formatTime}
-                  passingThreshold={passingThreshold}
+                  passingThreshold={selectedExam?.passingThreshold}
                 />
               )}
-              {/* <div className="flex justify-between items-center mb-4 bg-white p-4 rounded-lg shadow">
-                <div>
-                  <h2 className="text-xl font-semibold">Chào mừng, {name}</h2>
-                  <p className="text-sm text-gray-600">Trả lời tất cả các câu hỏi và nộp bài khi hoàn thành</p>
-                  {timeLimitMinutes != null && Number(timeLimitMinutes) > 0 && (
-                    <div className="mt-1 text-xs text-gray-500">Giới hạn thời gian: {timeLimitMinutes} phút</div>
-                  )}
-                  {passingThreshold != null && Number(passingThreshold) >= 0 && (
-                    <div className="mt-1 text-xs text-gray-500">Ngưỡng đạt: {passingThreshold}%</div>
-                  )}
-                </div>
-              </div> */}
-
               <div className="space-y-4">
                 {(examQuestions || questions).map((q, idx)=>(
               <div key={q.id} id={'question-'+q.id} className="p-4 border rounded-lg bg-white shadow scroll-mt-24">
@@ -254,11 +278,11 @@ export default function StudentPage({ setMode }){
                   <span><i>(Chọn 1 phương án đúng)</i></span>
                   {q.choices.map((c,i)=>(
                     <label key={i} className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer">
-                      <input 
-                        type="radio" 
-                        name={'q'+q.id} 
-                        checked={String(answers[q.id])===String(i)} 
-                        onChange={()=>choose(q.id, i)} 
+                      <input
+                        type="radio"
+                        name={'q'+q.id}
+                        checked={String(answers[q.id])===String(i)}
+                        onChange={()=>choose(q.id, i)}
                         className="w-4 h-4"
                       />
                       <span>{c}</span>
@@ -268,16 +292,16 @@ export default function StudentPage({ setMode }){
               </div>
             ))}
           </div>
-          
+
               <div className="mt-6 flex gap-3">
-            <button 
-              className="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition" 
+            <button
+              className="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition"
               onClick={() => setShowSubmitConfirm(true)}
             >
               Nộp bài
             </button>
-            <button 
-              className="px-4 py-3 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition" 
+            <button
+              className="px-4 py-3 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition"
               onClick={() => setShowQuitConfirm(true)}
             >
               Thoát
@@ -294,13 +318,13 @@ export default function StudentPage({ setMode }){
               <h3 className="text-lg font-bold text-gray-900 mb-2">Xác nhận nộp bài</h3>
               <p className="text-gray-600 mb-6">Bạn có chắc chắn muốn nộp bài thi không?</p>
               <div className="flex gap-3">
-                <button 
+                <button
                   onClick={() => setShowSubmitConfirm(false)}
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
                 >
                   Hủy
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     setShowSubmitConfirm(false)
                     submit()
@@ -321,13 +345,13 @@ export default function StudentPage({ setMode }){
               <h3 className="text-lg font-bold text-gray-900 mb-2">Xác nhận thoát</h3>
               <p className="text-gray-600 mb-6">Bạn có chắc chắn muốn thoát và hủy bài làm hiện tại không?</p>
               <div className="flex gap-3">
-                <button 
+                <button
                   onClick={() => setShowQuitConfirm(false)}
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
                 >
                   Hủy
                 </button>
-                <button 
+                <button
                   onClick={handleQuit}
                   className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
                 >
@@ -353,9 +377,6 @@ function QuestionTracker({ questions, answers, goto, sidebar, timeElapsed, timeL
     <div className={baseClasses}>
       <div className="mb-3">
         {sidebar && studentName && <div className="text-xl font-bold mb-2">Xin chào, <span className="text-emerald-700">{studentName}</span></div>}
-        {/* <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-gray-800 text-xl">Danh sách câu hỏi</h3>
-        </div> */}
         {timeLimitMinutes != null && Number(timeLimitMinutes) > 0 && (
           <div className="mt-1 text-base text-gray-600">Giới hạn thời gian: {timeLimitMinutes} phút</div>
         )}
@@ -393,12 +414,19 @@ function QuestionTracker({ questions, answers, goto, sidebar, timeElapsed, timeL
           )
         })}
       </div>
-      
+
     </div>
   )
 }
 
 
+
+function formatMinSec(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0))
+  const mins = Math.floor(s / 60)
+  const secs = s % 60
+  return `${mins} phút ${secs} giây`
+}
 
 function ResultModal({ info, onClose, formatTime, passingThreshold }) {
   const percent = Math.round((info.score / info.total) * 100)
@@ -419,14 +447,12 @@ function ResultModal({ info, onClose, formatTime, passingThreshold }) {
               <div className="col-span-2 rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
                 <p className="text-xl font-bold text-gray-900">Họ tên: <span className="font-bold text-emerald-700">{info.name || '—'}</span></p>
                 <div className="text-xl font-bold text-gray-900">Điểm: <span className="font-bold text-emerald-700">{info.score}<span className="text-gray-900">/{info.total}</span></span></div>
-                {/* <div className="mt-1 text-3xl font-extrabold text-emerald-700">{info.score}<span className="text-gray-900">/{info.total}</span></div> */}
                 <div className="text-xl font-bold text-gray-900">Tỷ lệ đúng: <span className="font-bold text-emerald-700">{percent}%</span></div>
                 <div className="text-xl text-gray-900">(Ngưỡng yêu cầu: {threshold}%)</div>
-                {/* <p className="text-gray-800">Ngưỡng yêu cầu: {threshold}%</p> */}
               </div>
               <div className="rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
                 <div className="text-xl font-bold text-gray-900">Thời gian làm</div>
-                <div className="mt-1 text-3xl font-extrabold text-emerald-700 font-mono">{formatTime(info.timeSpent)}</div>
+                <div className="mt-1 text-3xl font-extrabold text-emerald-700 font-mono">{formatMinSec(info.timeSpent)}</div>
               </div>
             </div>
             <div className="rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
