@@ -1,8 +1,23 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Header from '../components/Header'
-// Decorative SVG background for the result modal
-const RESULT_BG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='400'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%23d1fae5' offset='0'/%3E%3Cstop stop-color='%23a7f3d0' offset='1'/%3E%3C/linearGradient%3E%3Cpattern id='dots' x='0' y='0' width='24' height='24' patternUnits='userSpaceOnUse'%3E%3Ccircle cx='2' cy='2' r='2' fill='%2300000030'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Crect width='100%25' height='100%25' fill='url(%23dots)'/%3E%3C/svg%3E"
-import logo from '../assets/images/bg.jpg'
+import bgPhoto from '../assets/images/song-thu.jpg'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  Input,
+  LoadingState,
+  Modal,
+  ProgressBar,
+  ScoreRing,
+  SearchInput,
+  Stepper,
+  Toast,
+  cx,
+} from '../components/ui'
 
 // Below this many entries a search box is more clutter than help
 const SEARCH_THRESHOLD = 5
@@ -21,19 +36,47 @@ function matchesQuery(text, query) {
   const q = normalizeVi(query).trim()
   if (!q) return true
   // Every whitespace-separated term must appear, so word order does not matter
-  return q.split(/\s+/).every(term => normalizeVi(text).includes(term))
+  return q.split(/\s+/).every((term) => normalizeVi(text).includes(term))
 }
 
-export default function StudentPage({ setMode }){
+function formatClock(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0))
+  const hrs = Math.floor(s / 3600)
+  const mins = Math.floor((s % 3600) / 60)
+  const secs = s % 60
+  const mm = String(mins).padStart(2, '0')
+  const ss = String(secs).padStart(2, '0')
+  return hrs > 0 ? `${String(hrs).padStart(2, '0')}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+function formatMinSec(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0))
+  return `${Math.floor(s / 60)} phút ${s % 60} giây`
+}
+
+// How many questions the candidate will actually face, once the per-attempt draw
+// is taken into account
+function effectiveQuestionCount(exam) {
+  const bank = exam?.questionCount ?? 0
+  const draw = exam?.numQuestions
+  return draw && draw > 0 && draw < bank ? draw : bank
+}
+
+const CHOICE_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+
+export default function StudentPage({ setMode }) {
   const [exams, setExams] = useState([])
   const [selectedExam, setSelectedExam] = useState(null)
   const [questions, setQuestions] = useState([])
   const [examQuestions, setExamQuestions] = useState(null)
   const [name, setName] = useState('')
+  const [nameError, setNameError] = useState('')
   const [departments, setDepartments] = useState([])
   const [selectedDepartment, setSelectedDepartment] = useState(null)
   const [loadingSetup, setLoadingSetup] = useState(true)
   const [loadingExams, setLoadingExams] = useState(false)
+  const [loadingQuestions, setLoadingQuestions] = useState(false)
+  const [setupError, setSetupError] = useState('')
   const [deptQuery, setDeptQuery] = useState('')
   const [examQuery, setExamQuery] = useState('')
   const [answers, setAnswers] = useState({})
@@ -45,21 +88,34 @@ export default function StudentPage({ setMode }){
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showQuitConfirm, setShowQuitConfirm] = useState(false)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
+  const [notification, setNotification] = useState(null)
 
-  useEffect(()=>{
+  useEffect(() => {
+    if (!notification) return
+    const timer = setTimeout(() => setNotification(null), 4000)
+    return () => clearTimeout(timer)
+  }, [notification])
+
+  function loadSetup() {
+    setLoadingSetup(true)
+    setSetupError('')
     fetch('http://localhost:3001/api/departments')
-      .then(r=>r.json())
-      .then(list => {
+      .then((r) => r.json())
+      .then((list) => {
         setDepartments(list)
         // No departments configured yet — fall back to offering every exam so the
         // app stays usable before an admin sets the list up.
         if (!list.length) {
-          return fetch('http://localhost:3001/api/exams').then(r=>r.json()).then(setExams)
+          return fetch('http://localhost:3001/api/exams')
+            .then((r) => r.json())
+            .then(setExams)
         }
       })
-      .catch(()=>{})
+      .catch(() => setSetupError('Không kết nối được máy chủ. Vui lòng kiểm tra và thử lại.'))
       .finally(() => setLoadingSetup(false))
-  }, [])
+  }
+
+  useEffect(loadSetup, [])
 
   function selectDepartment(dept) {
     setSelectedDepartment(dept)
@@ -67,15 +123,20 @@ export default function StudentPage({ setMode }){
     setExamQuery('')
     setLoadingExams(true)
     fetch(`http://localhost:3001/api/exams?departmentId=${dept.id}`)
-      .then(r=>r.json())
+      .then((r) => r.json())
       .then(setExams)
-      .catch(()=>{})
+      .catch(() => setNotification({ type: 'error', message: 'Không tải được danh sách bài thi.' }))
       .finally(() => setLoadingExams(false))
   }
 
   function selectExam(exam) {
     setSelectedExam(exam)
-    fetch(`http://localhost:3001/api/questions?examId=${exam.id}`).then(r=>r.json()).then(setQuestions).catch(()=>{})
+    setLoadingQuestions(true)
+    fetch(`http://localhost:3001/api/questions?examId=${exam.id}`)
+      .then((r) => r.json())
+      .then(setQuestions)
+      .catch(() => setNotification({ type: 'error', message: 'Không tải được câu hỏi của bài thi.' }))
+      .finally(() => setLoadingQuestions(false))
   }
 
   useEffect(() => {
@@ -89,7 +150,8 @@ export default function StudentPage({ setMode }){
   // Auto-submit when time limit reached
   useEffect(() => {
     const timeLimitMinutes = selectedExam?.timeLimitMinutes
-    const limit = (timeLimitMinutes != null && !isNaN(timeLimitMinutes)) ? timeLimitMinutes * 60 : null
+    const limit =
+      timeLimitMinutes != null && !isNaN(timeLimitMinutes) ? timeLimitMinutes * 60 : null
     if (!startTime || submitted || isSubmitting || !limit || limit <= 0) return
     if (timeElapsed >= limit) {
       submit()
@@ -97,7 +159,11 @@ export default function StudentPage({ setMode }){
   }, [timeElapsed, selectedExam, submitted, startTime, isSubmitting])
 
   function startExam() {
-    if (!name.trim()) return alert('Vui lòng nhập tên của bạn')
+    if (!name.trim()) {
+      setNameError('Vui lòng nhập họ và tên của bạn.')
+      return
+    }
+    setNameError('')
     // Ensure previous submission state is cleared for a fresh attempt
     setSubmitted(false)
     // Shuffle questions and choices per attempt
@@ -115,11 +181,11 @@ export default function StudentPage({ setMode }){
     if (numQuestionsLimit && numQuestionsLimit > 0 && numQuestionsLimit < questions.length) {
       questionsToUse = shuffle(questions).slice(0, numQuestionsLimit)
     }
-    const shuffled = shuffle(questionsToUse).map(q => {
+    const shuffled = shuffle(questionsToUse).map((q) => {
       const withIdx = (q.choices || []).map((t, idx) => ({ t, idx }))
       const sc = shuffle(withIdx)
-      const newChoices = sc.map(c => c.t)
-      const newCorrect = sc.findIndex(c => String(c.idx) === String(q.correct))
+      const newChoices = sc.map((c) => c.t)
+      const newCorrect = sc.findIndex((c) => String(c.idx) === String(q.correct))
       return { ...q, choices: newChoices, correct: String(newCorrect) }
     })
     setExamQuestions(shuffled)
@@ -127,30 +193,23 @@ export default function StudentPage({ setMode }){
     setStartTime(new Date())
   }
 
-  function choose(qid, idx){
-    setAnswers(prev => ({...prev, [qid]: idx}))
+  function choose(qid, idx) {
+    setAnswers((prev) => ({ ...prev, [qid]: idx }))
   }
 
-  function formatTime(seconds) {
-    const hrs = Math.floor(seconds / 3600)
-    const mins = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
-
-  async function submit(){
+  async function submit() {
     if (isSubmitting) return
     setIsSubmitting(true)
     const submitTime = new Date()
     let score = 0
     const activeQs = examQuestions || questions
-    activeQs.forEach(q => {
-      if(answers[q.id] != null && String(answers[q.id]) === String(q.correct)) score++
+    activeQs.forEach((q) => {
+      if (answers[q.id] != null && String(answers[q.id]) === String(q.correct)) score++
     })
     try {
       const res = await fetch('http://localhost:3001/api/results', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           studentName: name,
           department: selectedDepartment?.name || null,
@@ -160,24 +219,31 @@ export default function StudentPage({ setMode }){
           total: activeQs.length,
           startTime: startTime.toISOString(),
           submitTime: submitTime.toISOString(),
-          timeSpent: timeElapsed
-        })
+          timeSpent: timeElapsed,
+        }),
       })
       if (!res.ok) {
         let detail = ''
-        try { const t = await res.text(); detail = t } catch {}
-        throw new Error('Server responded with '+res.status+(detail?(' - '+detail):''))
+        try {
+          detail = await res.text()
+        } catch {}
+        throw new Error('Server responded with ' + res.status + (detail ? ' - ' + detail : ''))
       }
       setSubmitted(true)
       setResultInfo({
         name,
         department: selectedDepartment?.name || '',
+        examTitle: selectedExam?.title || '',
         score,
-        total: (examQuestions || questions).length,
+        total: activeQs.length,
         timeSpent: timeElapsed,
       })
     } catch (e) {
-      alert('Không thể nộp bài. Vui lòng kiểm tra kết nối máy chủ. Lỗi: '+e.message)
+      setNotification({
+        type: 'error',
+        message: 'Không nộp được bài. Kiểm tra kết nối máy chủ rồi thử lại.',
+      })
+      console.error('Submit failed:', e)
     } finally {
       setIsSubmitting(false)
     }
@@ -187,471 +253,880 @@ export default function StudentPage({ setMode }){
   function resetToStart() {
     setStarted(false)
     setName('')
+    setNameError('')
     setSelectedExam(null)
     setSelectedDepartment(null)
     setDeptQuery('')
     setExamQuery('')
     setExamQuestions(null)
+    setQuestions([])
     setAnswers({})
     setStartTime(null)
     setTimeElapsed(0)
     setSubmitted(false)
   }
 
-  function handleQuit() {
-    resetToStart()
-    setShowQuitConfirm(false)
+  const hasDepartments = departments.length > 0
+  const steps = hasDepartments ? ['Phòng ban', 'Bài thi', 'Họ tên'] : ['Bài thi', 'Họ tên']
+  const stepOffset = hasDepartments ? 0 : 1
+
+  function goToStep(index) {
+    const target = index + stepOffset
+    if (target <= 0) {
+      setSelectedDepartment(null)
+      setExams([])
+      setSelectedExam(null)
+      setExamQuery('')
+    } else if (target === 1) {
+      setSelectedExam(null)
+      setQuestions([])
+      setNameError('')
+    }
   }
 
-  // Hold the flow until the department list is in — otherwise the exam picker below
-  // renders first and flashes "no exams available" before the real first step appears.
-  if (loadingSetup) {
+  /* ------------------------------------------------ Step 0 — loading/error */
+  if (loadingSetup || setupError) {
     return (
-      <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
-        <Header currentMode="student" setMode={setMode} isFixed={false} />
-        <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
-          <div className="bg-white rounded-lg shadow-2xl px-8 py-6">
-            <p className="text-gray-500">Đang tải...</p>
-          </div>
-        </div>
-      </div>
+      <CandidateShell>
+        <Header currentMode="student" setMode={setMode} />
+        <FlowCard>
+          {setupError ? (
+            <EmptyState
+              icon={Icon.Alert}
+              tone="danger"
+              title="Không kết nối được máy chủ"
+              description={setupError}
+              action={
+                <Button variant="primary" icon={Icon.Refresh} onClick={loadSetup}>
+                  Thử lại
+                </Button>
+              }
+            />
+          ) : (
+            <LoadingState label="Đang chuẩn bị kỳ thi..." />
+          )}
+        </FlowCard>
+      </CandidateShell>
     )
   }
 
-  // Step 1 — pick a department (skipped entirely when the admin has configured none)
-  if (departments.length > 0 && !selectedDepartment) {
-    const filtered = departments.filter(d => matchesQuery(d.name, deptQuery))
+  /* -------------------------------------------------- Step 1 — department */
+  if (hasDepartments && !selectedDepartment) {
+    const filtered = departments.filter((d) => matchesQuery(d.name, deptQuery))
     return (
-      <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
-        <Header currentMode="student" setMode={setMode} isFixed={false} />
-
-        <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
-          <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-3xl">
-            <h2 className="text-3xl font-bold text-center text-gray-800 mb-1">Chọn phòng ban</h2>
-            <p className="text-center text-gray-500 mb-6">Bước 1/3 — Chọn phòng ban của bạn</p>
-            {departments.length > SEARCH_THRESHOLD && (
-              <div className="mb-4">
-                <input
-                  type="text"
-                  autoFocus
-                  value={deptQuery}
-                  onChange={e => setDeptQuery(e.target.value)}
-                  onKeyDown={e => {
-                    // One match left — Enter picks it without reaching for the mouse
-                    if (e.key === 'Enter' && filtered.length === 1) selectDepartment(filtered[0])
-                    if (e.key === 'Escape') setDeptQuery('')
-                  }}
-                  placeholder="Tìm phòng ban... (không cần dấu)"
-                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-green-600"
-                />
-                {deptQuery.trim() !== '' && (
-                  <p className="text-sm text-gray-500 mt-1.5">
-                    Tìm thấy {filtered.length}/{departments.length} phòng ban
-                  </p>
-                )}
-              </div>
-            )}
-            {filtered.length === 0 ? (
-              <p className="text-center text-gray-500 py-6">Không tìm thấy phòng ban phù hợp.</p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 max-h-[55vh] overflow-y-auto pr-1">
-                {filtered.map(dept => (
-                  <button
-                    key={dept.id}
-                    onClick={() => selectDepartment(dept)}
-                    className="text-left px-5 py-4 border-2 border-gray-200 rounded-lg hover:border-green-600 hover:bg-green-50 transition font-semibold text-gray-800"
-                  >
-                    {dept.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        <p className="absolute bottom-3 inset-x-0 text-center">
-          <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm shadow-lg ring-1 ring-white/20 text-white/90 text-sm font-medium tracking-wide">
-            <span className="text-amber-300">✦</span>
-            Designed by <span className="font-semibold text-white">Quốc Vinh</span>
-          </span>
-        </p>
-      </div>
-    )
-  }
-
-  // Step 2 — pick an exam from the ones offered to that department
-  if (!selectedExam) {
-    const filtered = exams.filter(e => matchesQuery(e.title, examQuery))
-    return (
-      <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
-        <Header currentMode="student" setMode={setMode} isFixed={false} />
-
-        <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
-          <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg">
-            <h2 className="text-3xl font-bold text-center text-gray-800 mb-1">Chọn bài thi</h2>
-            {selectedDepartment && (
-              <p className="text-center text-gray-500 mb-6">
-                Bước 2/3 — Phòng ban: <span className="font-semibold text-emerald-700">{selectedDepartment.name}</span>
-              </p>
-            )}
-            {loadingExams ? (
-              <p className="text-center text-gray-500">Đang tải danh sách bài thi...</p>
-            ) : exams.length === 0 ? (
-              <p className="text-center text-gray-500">
-                {selectedDepartment
-                  ? 'Phòng ban này chưa được giao bài thi nào. Vui lòng liên hệ quản trị viên.'
-                  : 'Chưa có bài thi nào. Vui lòng liên hệ quản trị viên.'}
-              </p>
-            ) : (
-              <>
-                {exams.length > SEARCH_THRESHOLD && (
-                  <div className="mb-4">
-                    <input
-                      type="text"
-                      autoFocus
-                      value={examQuery}
-                      onChange={e => setExamQuery(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && filtered.length === 1) selectExam(filtered[0])
-                        if (e.key === 'Escape') setExamQuery('')
-                      }}
-                      placeholder="Tìm bài thi... (không cần dấu)"
-                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-green-600"
-                    />
-                    {examQuery.trim() !== '' && (
-                      <p className="text-sm text-gray-500 mt-1.5">
-                        Tìm thấy {filtered.length}/{exams.length} bài thi
-                      </p>
-                    )}
-                  </div>
-                )}
-                {filtered.length === 0 ? (
-                  <p className="text-center text-gray-500 py-6">Không tìm thấy bài thi phù hợp.</p>
-                ) : (
-                  <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
-                    {filtered.map(exam => (
-                      <button
-                        key={exam.id}
-                        onClick={() => selectExam(exam)}
-                        className="w-full text-left px-5 py-4 border-2 border-gray-200 rounded-lg hover:border-green-600 hover:bg-green-50 transition flex items-center justify-between"
-                      >
-                        <span className="font-semibold text-gray-800">{exam.title}</span>
-                        <span className="text-sm text-gray-500 whitespace-nowrap ml-3">{exam.questionCount ?? 0} câu hỏi</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-            {selectedDepartment && (
-              <button
-                onClick={() => { setSelectedDepartment(null); setExams([]); setDeptQuery(''); setExamQuery('') }}
-                className="w-full mt-4 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition"
-              >
-                ← Đổi phòng ban
-              </button>
-            )}
-          </div>
-        </div>
-        <p className="absolute bottom-3 inset-x-0 text-center">
-          <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm shadow-lg ring-1 ring-white/20 text-white/90 text-sm font-medium tracking-wide">
-            <span className="text-amber-300">✦</span>
-            Designed by <span className="font-semibold text-white">Quốc Vinh</span>
-          </span>
-        </p>
-      </div>
-    )
-  }
-
-  // Step 3 — name entry, then start
-  if (!started) {
-    return (
-      <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
-        <Header currentMode="student" setMode={setMode} isFixed={false} />
-
-          <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
-            <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
-              <h2 className="text-3xl font-bold text-center text-gray-800 mb-1">{selectedExam.title}</h2>
-              {selectedDepartment && (
-                <p className="text-center text-gray-500 mb-4">
-                  Bước 3/3 — Phòng ban: <span className="font-semibold text-emerald-700">{selectedDepartment.name}</span>
+      <CandidateShell>
+        <Header currentMode="student" setMode={setMode} />
+        <FlowCard
+          steps={steps}
+          current={0}
+          onStepClick={goToStep}
+          title="Bạn thuộc phòng ban nào?"
+          width="max-w-3xl"
+        >
+          {departments.length > SEARCH_THRESHOLD && (
+            <div className="mb-4">
+              <SearchInput
+                autoFocus
+                value={deptQuery}
+                onChange={(e) => setDeptQuery(e.target.value)}
+                onClear={() => setDeptQuery('')}
+                onKeyDown={(e) => {
+                  // One match left — Enter picks it without reaching for the mouse
+                  if (e.key === 'Enter' && filtered.length === 1) selectDepartment(filtered[0])
+                  if (e.key === 'Escape') setDeptQuery('')
+                }}
+                placeholder="Tìm phòng ban (không cần dấu)..."
+              />
+              {deptQuery.trim() !== '' && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Tìm thấy <span className="font-semibold text-slate-700">{filtered.length}</span>/
+                  {departments.length} phòng ban
                 </p>
               )}
-
-            <div className="mb-6">
-              <label className="block text-gray-700 font-medium mb-2">Nhập tên của bạn:</label>
-              <input
-                type="text"
-                autoFocus
-                value={name}
-                onChange={e => setName(e.target.value)}
-                onKeyPress={e => e.key === 'Enter' && startExam()}
-                placeholder="Nhập họ tên"
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-green-600"
-              />
             </div>
+          )}
 
-            <button
-              onClick={startExam}
-              className="w-full px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition"
-            >
-              Bắt đầu làm bài
-            </button>
-            <button
-              onClick={() => setSelectedExam(null)}
-              className="w-full mt-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition"
-            >
-              ← Đổi bài thi
-            </button>
-          </div>
-          </div>
-          <p className="absolute bottom-3 inset-x-0 text-center">
-            <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm shadow-lg ring-1 ring-white/20 text-white/90 text-sm font-medium tracking-wide">
-              <span className="text-amber-300">✦</span>
-              Designed by <span className="font-semibold text-white">Quốc Vinh</span>
-            </span>
-          </p>
-      </div>
+          {filtered.length === 0 ? (
+            <EmptyState
+              icon={Icon.Search}
+              title="Không tìm thấy phòng ban phù hợp"
+              description="Thử bỏ bớt từ khóa, hoặc xóa ô tìm kiếm để xem toàn bộ danh sách."
+              action={
+                <Button variant="secondary" onClick={() => setDeptQuery('')}>
+                  Xóa tìm kiếm
+                </Button>
+              }
+            />
+          ) : (
+            <div className="grid gap-2.5 sm:grid-cols-2 max-h-[42vh] overflow-y-auto scroll-slim -mx-1 px-1 py-1">
+              {filtered.map((dept) => (
+                <PickerButton
+                  key={dept.id}
+                  icon={Icon.Building}
+                  title={dept.name}
+                  onClick={() => selectDepartment(dept)}
+                />
+              ))}
+            </div>
+          )}
+        </FlowCard>
+      </CandidateShell>
     )
   }
 
-
-  // Show quiz questions after started
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Header currentMode="student" setMode={setMode} isFixed={true} />
-
-      <div className="pt-20 p-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex gap-6">
-            {/* Sidebar Tracker now includes timer */}
-            <QuestionTracker
-              sidebar
-              studentName={name}
-              questions={examQuestions || questions}
-              answers={answers}
-              timeElapsed={timeElapsed}
-              timeLimitMinutes={selectedExam?.timeLimitMinutes}
-              formatTime={formatTime}
-              goto={(id) => {
-              const el = document.getElementById('question-'+id)
-              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }}
+  /* -------------------------------------------------------- Step 2 — exam */
+  if (!selectedExam) {
+    const filtered = exams.filter((e) => matchesQuery(e.title, examQuery))
+    return (
+      <CandidateShell>
+        <Header currentMode="student" setMode={setMode} />
+        <FlowCard
+          steps={steps}
+          current={1 - stepOffset}
+          onStepClick={goToStep}
+          title="Chọn bài thi"
+          context={selectedDepartment && [{ icon: Icon.Building, value: selectedDepartment.name }]}
+          onBack={hasDepartments ? () => goToStep(0) : undefined}
+          backLabel="Đổi phòng ban"
+          width="max-w-2xl"
+        >
+          {loadingExams ? (
+            <LoadingState label="Đang tải danh sách bài thi..." />
+          ) : exams.length === 0 ? (
+            <EmptyState
+              icon={Icon.Doc}
+              tone="warning"
+              title="Chưa có bài thi nào"
+              description={
+                selectedDepartment
+                  ? `Phòng ban "${selectedDepartment.name}" chưa được giao bài thi. Vui lòng liên hệ quản trị viên.`
+                  : 'Chưa có bài thi nào được tạo. Vui lòng liên hệ quản trị viên.'
+              }
+              action={
+                hasDepartments ? (
+                  <Button variant="secondary" icon={Icon.ArrowLeft} onClick={() => goToStep(0)}>
+                    Chọn phòng ban khác
+                  </Button>
+                ) : null
+              }
             />
-            <div className="flex-1">
-              {resultInfo && (
-                <ResultModal
-                  info={resultInfo}
-                  onClose={() => {
-                    setResultInfo(null)
-                    resetToStart()
-                  }}
-                  formatTime={formatTime}
-                  passingThreshold={selectedExam?.passingThreshold}
-                />
-              )}
-              <div className="space-y-4">
-                {(examQuestions || questions).map((q, idx)=>(
-              <div key={q.id} id={'question-'+q.id} className="p-4 border rounded-lg bg-white shadow scroll-mt-24">
-                <div className="font-medium mb-3 text-gray-800">
-                  <span className="inline-block mr-2 px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-sm">Câu {idx + 1}</span>
-                  {q.text}
+          ) : (
+            <>
+              {exams.length > SEARCH_THRESHOLD && (
+                <div className="mb-4">
+                  <SearchInput
+                    autoFocus
+                    value={examQuery}
+                    onChange={(e) => setExamQuery(e.target.value)}
+                    onClear={() => setExamQuery('')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && filtered.length === 1) selectExam(filtered[0])
+                      if (e.key === 'Escape') setExamQuery('')
+                    }}
+                    placeholder="Tìm bài thi (không cần dấu)..."
+                  />
+                  {examQuery.trim() !== '' && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Tìm thấy <span className="font-semibold text-slate-700">{filtered.length}</span>
+                      /{exams.length} bài thi
+                    </p>
+                  )}
                 </div>
-                <div className="space-y-2">
-                  <span><i>(Chọn 1 phương án đúng)</i></span>
-                  {q.choices.map((c,i)=>(
-                    <label key={i} className="flex items-center space-x-3 p-2 rounded hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name={'q'+q.id}
-                        checked={String(answers[q.id])===String(i)}
-                        onChange={()=>choose(q.id, i)}
-                        className="w-4 h-4"
-                      />
-                      <span>{c}</span>
-                    </label>
+              )}
+
+              {filtered.length === 0 ? (
+                <EmptyState
+                  icon={Icon.Search}
+                  title="Không tìm thấy bài thi phù hợp"
+                  description="Thử bỏ bớt từ khóa, hoặc xóa ô tìm kiếm để xem toàn bộ danh sách."
+                  action={
+                    <Button variant="secondary" onClick={() => setExamQuery('')}>
+                      Xóa tìm kiếm
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="space-y-2.5 max-h-[42vh] overflow-y-auto scroll-slim -mx-1 px-1 py-1">
+                  {filtered.map((exam) => (
+                    <PickerButton
+                      key={exam.id}
+                      icon={Icon.Doc}
+                      title={exam.title}
+                      onClick={() => selectExam(exam)}
+                      meta={
+                        <>
+                          <MetaItem icon={Icon.List}>{effectiveQuestionCount(exam)} câu hỏi</MetaItem>
+                          <MetaItem icon={Icon.Clock}>
+                            {exam.timeLimitMinutes > 0
+                              ? `${exam.timeLimitMinutes} phút`
+                              : 'Không giới hạn'}
+                          </MetaItem>
+                        </>
+                      }
+                    />
                   ))}
                 </div>
-              </div>
-            ))}
+              )}
+            </>
+          )}
+        </FlowCard>
+      </CandidateShell>
+    )
+  }
+
+  /* -------------------------------------------------------- Step 3 — name */
+  if (!started) {
+    const total = effectiveQuestionCount(selectedExam)
+    const ready = !loadingQuestions && questions.length > 0
+    return (
+      <CandidateShell>
+        <Header currentMode="student" setMode={setMode} />
+        <FlowCard
+          steps={steps}
+          current={2 - stepOffset}
+          onStepClick={goToStep}
+          title="Xác nhận và bắt đầu"
+          onBack={() => goToStep(1 - stepOffset)}
+          backLabel="Đổi bài thi"
+          width="max-w-xl"
+        >
+          {/* Recap of everything picked so far, so nothing is a surprise */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5 mb-5">
+            <p className="text-base font-semibold text-slate-900 leading-snug">
+              {selectedExam.title}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {selectedDepartment && (
+                <Badge icon={Icon.Building}>{selectedDepartment.name}</Badge>
+              )}
+              <Badge icon={Icon.List} tone="accent">
+                {total} câu hỏi
+              </Badge>
+              <Badge icon={Icon.Clock} tone={selectedExam.timeLimitMinutes > 0 ? 'warning' : 'neutral'}>
+                {selectedExam.timeLimitMinutes > 0
+                  ? `${selectedExam.timeLimitMinutes} phút`
+                  : 'Không giới hạn thời gian'}
+              </Badge>
+              <Badge icon={Icon.CheckCircle} tone="success">
+                Phải đạt từ {selectedExam.passingThreshold ?? 80}%
+              </Badge>
+            </div>
           </div>
 
-              <div className="mt-6 flex gap-3">
-            <button
-              className="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition"
-              onClick={() => setShowSubmitConfirm(true)}
+          <div className="space-y-1.5 mb-5">
+            <label htmlFor="candidate-name" className="block text-sm font-medium text-slate-700">
+              Họ và tên<span className="text-rose-500 ml-0.5">*</span>
+            </label>
+            <Input
+              id="candidate-name"
+              size="lg"
+              autoFocus
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                if (nameError) setNameError('')
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && ready && startExam()}
+              placeholder="Ví dụ: Nguyễn Văn An"
+              className={nameError ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/15' : ''}
+            />
+            {nameError ? (
+              <p className="text-xs text-rose-600 flex items-center gap-1">
+                <Icon.Alert className="w-3.5 h-3.5 shrink-0" />
+                {nameError}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500">
+                Tên này sẽ hiển thị trên bảng kết quả, vui lòng nhập đầy đủ và chính xác.
+              </p>
+            )}
+          </div>
+
+          {!loadingQuestions && questions.length === 0 && (
+            <Alert tone="danger" className="mb-5">
+              Bài thi này chưa có câu hỏi nào. Vui lòng chọn bài thi khác hoặc liên hệ quản trị viên.
+            </Alert>
+          )}
+
+          <Button
+            variant="primary"
+            size="xl"
+            fullWidth
+            icon={Icon.Play}
+            loading={loadingQuestions}
+            disabled={!ready}
+            onClick={startExam}
+          >
+            {loadingQuestions ? 'Đang tải câu hỏi...' : 'Bắt đầu làm bài'}
+          </Button>
+        </FlowCard>
+      </CandidateShell>
+    )
+  }
+
+  /* ------------------------------------------------------------ The quiz */
+  const activeQuestions = examQuestions || questions
+  const answeredCount = activeQuestions.filter((q) => answers[q.id] !== undefined).length
+  const unansweredCount = activeQuestions.length - answeredCount
+  const limitSeconds =
+    selectedExam?.timeLimitMinutes > 0 ? selectedExam.timeLimitMinutes * 60 : null
+  const remaining = limitSeconds != null ? Math.max(limitSeconds - timeElapsed, 0) : null
+
+  function gotoQuestion(id) {
+    const el = document.getElementById('question-' + id)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-100">
+      <Header currentMode="student" setMode={setMode} isFixed locked />
+      <Toast notification={notification} />
+
+      {/* Exam bar — the single home for identity, progress and the clock */}
+      <div className="fixed top-16 left-0 right-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-900 truncate leading-tight">
+              {selectedExam.title}
+            </p>
+            <p className="text-xs text-slate-500 truncate">
+              {name}
+              {selectedDepartment ? ` · ${selectedDepartment.name}` : ''}
+            </p>
+          </div>
+
+          <div className="hidden md:block w-48 lg:w-64">
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="text-slate-500">Đã trả lời</span>
+              <span className="font-semibold text-slate-700 tnum">
+                {answeredCount}/{activeQuestions.length}
+              </span>
+            </div>
+            <ProgressBar value={answeredCount} total={activeQuestions.length} />
+          </div>
+
+          <TimerChip remaining={remaining} elapsed={timeElapsed} />
+        </div>
+      </div>
+
+      <div className="pt-32 pb-10 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+          {/* Questions */}
+          <div className="min-w-0 space-y-4">
+            {/* Mobile tracker — the sidebar is hidden below lg */}
+            <details className="lg:hidden group">
+              <summary className="flex items-center justify-between gap-3 cursor-pointer list-none rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-card">
+                <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <Icon.List className="w-4 h-4 text-slate-400" />
+                  Danh sách câu hỏi
+                </span>
+                <span className="text-xs font-medium text-slate-500 tnum">
+                  {answeredCount}/{activeQuestions.length} đã trả lời
+                </span>
+              </summary>
+              <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-card">
+                <QuestionGrid questions={activeQuestions} answers={answers} onGoto={gotoQuestion} />
+              </div>
+            </details>
+
+            <p className="px-1 text-sm text-slate-500">
+              Mỗi câu chọn <strong className="font-semibold text-slate-700">1 phương án đúng</strong>.
+              Bạn có thể quay lại sửa câu trả lời bất cứ lúc nào trước khi nộp bài.
+            </p>
+
+            {activeQuestions.map((q, idx) => (
+              <QuestionCard
+                key={q.id}
+                question={q}
+                index={idx}
+                selected={answers[q.id]}
+                onChoose={choose}
+              />
+            ))}
+
+            {/* Closing action card — the natural end of the scroll */}
+            <Card className="p-5 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-base font-semibold text-slate-900">Hoàn tất bài thi</p>
+                  <p className="mt-0.5 text-sm text-slate-500">
+                    {unansweredCount === 0
+                      ? 'Bạn đã trả lời tất cả câu hỏi.'
+                      : `Còn ${unansweredCount} câu chưa trả lời.`}
+                  </p>
+                </div>
+                <div className="flex gap-2.5">
+                  <Button variant="secondary" icon={Icon.Logout} onClick={() => setShowQuitConfirm(true)}>
+                    Thoát
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    icon={Icon.Check}
+                    onClick={() => setShowSubmitConfirm(true)}
+                  >
+                    Nộp bài
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Sidebar tracker */}
+          <aside className="hidden lg:block">
+            <div className="sticky top-36 space-y-4">
+              <Card className="p-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-sm font-semibold text-slate-800">Tiến độ</p>
+                  <span className="text-sm font-bold text-accent-700 tnum">
+                    {answeredCount}/{activeQuestions.length}
+                  </span>
+                </div>
+                <ProgressBar value={answeredCount} total={activeQuestions.length} />
+                <p className="mt-2 text-xs text-slate-500">
+                  {unansweredCount === 0
+                    ? 'Đã trả lời tất cả câu hỏi.'
+                    : `Còn ${unansweredCount} câu chưa trả lời.`}
+                </p>
+
+                <div className="my-4 h-px bg-slate-200" />
+
+                <QuestionGrid questions={activeQuestions} answers={answers} onGoto={gotoQuestion} />
+
+                <div className="mt-4 flex items-center gap-4 text-xs text-slate-500">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded bg-accent-600" />
+                    Đã trả lời
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded border border-slate-300 bg-white" />
+                    Chưa trả lời
+                  </span>
+                </div>
+              </Card>
+
+              <div className="space-y-2.5">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  icon={Icon.Check}
+                  onClick={() => setShowSubmitConfirm(true)}
+                >
+                  Nộp bài
+                </Button>
+                <Button variant="secondary" fullWidth icon={Icon.Logout} onClick={() => setShowQuitConfirm(true)}>
+                  Thoát
+                </Button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      {/* Submit confirmation */}
+      <Modal
+        open={showSubmitConfirm}
+        onClose={() => setShowSubmitConfirm(false)}
+        size="sm"
+        icon={Icon.Check}
+        title="Nộp bài thi?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowSubmitConfirm(false)}>
+              Xem lại bài
+            </Button>
+            <Button
+              variant="primary"
+              loading={isSubmitting}
+              onClick={() => {
+                setShowSubmitConfirm(false)
+                submit()
+              }}
             >
               Nộp bài
-            </button>
-            <button
-              className="px-4 py-3 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition"
-              onClick={() => setShowQuitConfirm(true)}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600 leading-relaxed">
+          Bạn đã trả lời{' '}
+          <strong className="text-slate-900">
+            {answeredCount}/{activeQuestions.length}
+          </strong>{' '}
+          câu hỏi. Sau khi nộp, bạn không thể sửa lại bài làm.
+        </p>
+        {unansweredCount > 0 && (
+          <Alert tone="warning" className="mt-4">
+            Còn <strong>{unansweredCount}</strong> câu chưa trả lời — những câu này sẽ được tính là
+            sai.
+          </Alert>
+        )}
+      </Modal>
+
+      {/* Quit confirmation */}
+      <Modal
+        open={showQuitConfirm}
+        onClose={() => setShowQuitConfirm(false)}
+        size="sm"
+        icon={Icon.Alert}
+        title="Thoát khỏi bài thi?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowQuitConfirm(false)}>
+              Tiếp tục làm bài
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setShowQuitConfirm(false)
+                resetToStart()
+              }}
             >
-              Thoát
-            </button>
+              Thoát, không lưu
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600 leading-relaxed">
+          Toàn bộ bài làm hiện tại sẽ bị hủy và không được ghi nhận kết quả. Hành động này không thể
+          hoàn tác.
+        </p>
+      </Modal>
+
+      {/* Result */}
+      <ResultModal
+        info={resultInfo}
+        passingThreshold={selectedExam?.passingThreshold}
+        onClose={() => {
+          setResultInfo(null)
+          resetToStart()
+        }}
+      />
+    </div>
+  )
+}
+
+/* ========================================================================== */
+/* Candidate flow chrome                                                      */
+/* ========================================================================== */
+
+/**
+ * Full-bleed backdrop for the pre-exam steps. The workshop photo is pushed far
+ * back behind a blur and a navy scrim so it reads as texture instead of noise.
+ */
+function CandidateShell({ children }) {
+  return (
+    <div className="relative min-h-screen flex flex-col bg-slate-900 overflow-hidden">
+      <div
+        className="absolute inset-0 bg-cover bg-center scale-110 blur-xs opacity-200"
+        style={{ backgroundImage: `url(${bgPhoto})` }}
+        aria-hidden="true"
+      />
+      <div
+        className="absolute inset-0 bg-gradient-to-br from-brand-900/75 via-slate-900/65 to-accent-950/80"
+        aria-hidden="true"
+      />
+      <div className="relative flex flex-col min-h-screen">{children}</div>
+    </div>
+  )
+}
+
+function FlowCard({
+  steps,
+  current,
+  onStepClick,
+  title,
+  subtitle,
+  context,
+  onBack,
+  backLabel,
+  width = 'max-w-2xl',
+  children,
+}) {
+  return (
+    <>
+      <main className="flex-1 flex items-center justify-center px-4 py-6 sm:py-10">
+        <div className={cx('w-full animate-slide-up', width)}>
+          <div className="bg-white rounded-3xl shadow-pop border border-white/20 overflow-hidden">
+            {steps && (
+              <div className="px-5 sm:px-8 py-4 border-b border-slate-200 bg-slate-50/80">
+                <Stepper steps={steps} current={current} onStepClick={onStepClick} />
               </div>
+            )}
+
+            <div className="px-5 sm:px-8 py-6 sm:py-8">
+              {title && (
+                <div className="mb-6">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                    {title}
+                  </h1>
+                  {subtitle && <p className="mt-2 text-sm text-slate-500 leading-relaxed">{subtitle}</p>}
+                  {context && context.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {context.map((c, i) => (
+                        <Badge key={i} tone="accent" icon={c.icon}>
+                          {c.value}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {children}
+
+              {onBack && (
+                <div className="mt-6 pt-5 border-t border-slate-200">
+                  <Button variant="ghost" size="sm" icon={Icon.ArrowLeft} onClick={onBack}>
+                    {backLabel || 'Quay lại'}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>
+      </main>
 
-        {/* Submit Confirmation Modal */}
-        {showSubmitConfirm && (
-          <div className="fixed inset-0 bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Xác nhận nộp bài</h3>
-              <p className="text-gray-600 mb-6">Bạn có chắc chắn muốn nộp bài thi không?</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowSubmitConfirm(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={() => {
-                    setShowSubmitConfirm(false)
-                    submit()
-                  }}
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
-                >
-                  Nộp bài
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+      <footer className="relative pb-5 text-center">
+        <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/10 ring-1 ring-white/15 backdrop-blur-sm text-xs font-medium text-white/70">
+          <span className="text-amber-300">✦</span>
+          Designed by <span className="font-semibold text-white/90">Quốc Vinh</span>
+        </span>
+      </footer>
+    </>
+  )
+}
 
-        {/* Quit Confirmation Modal */}
-        {showQuitConfirm && (
-          <div className="fixed inset-0 bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Xác nhận thoát</h3>
-              <p className="text-gray-600 mb-6">Bạn có chắc chắn muốn thoát và hủy bài làm hiện tại không?</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowQuitConfirm(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium"
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={handleQuit}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
-                >
-                  Thoát
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+/** One row in the department / exam pickers. */
+function PickerButton({ icon: IconCmp, title, meta, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group w-full text-left flex items-center gap-3.5 rounded-xl border-2 border-slate-200 bg-white px-4 py-3.5 transition-all hover:border-accent-400 hover:bg-accent-50/60 hover:shadow-card active:scale-[0.995]"
+    >
+      <span className="grid place-items-center w-10 h-10 rounded-xl bg-slate-100 text-slate-500 shrink-0 transition-colors group-hover:bg-accent-100 group-hover:text-accent-700">
+        <IconCmp className="w-5 h-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold text-slate-800 leading-snug">{title}</span>
+        {meta && <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">{meta}</span>}
+      </span>
+      <Icon.ArrowRight className="w-5 h-5 text-slate-300 shrink-0 transition-all group-hover:text-accent-600 group-hover:translate-x-0.5" />
+    </button>
+  )
+}
+
+function MetaItem({ icon: IconCmp, children }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+      <IconCmp className="w-3.5 h-3.5" />
+      {children}
+    </span>
+  )
+}
+
+/* ========================================================================== */
+/* Quiz pieces                                                                */
+/* ========================================================================== */
+
+function TimerChip({ remaining, elapsed }) {
+  const counting = remaining != null
+  // Colour ramps as the deadline approaches so running out is never a surprise
+  const tone = !counting
+    ? 'bg-slate-100 text-slate-700 border-slate-200'
+    : remaining <= 60
+      ? 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse'
+      : remaining <= 300
+        ? 'bg-amber-50 text-amber-700 border-amber-200'
+        : 'bg-accent-50 text-accent-700 border-accent-200'
+
+  return (
+    <div className={cx('flex items-center gap-2.5 rounded-xl border px-3 py-2 shrink-0', tone)}>
+      <Icon.Clock className="w-5 h-5 shrink-0" />
+      <div className="leading-none">
+        <p className="text-[10px] font-medium uppercase tracking-wide opacity-70">
+          {counting ? 'Còn lại' : 'Đã làm'}
+        </p>
+        <p className="mt-1 text-lg sm:text-xl font-bold tnum">
+          {formatClock(counting ? remaining : elapsed)}
+        </p>
       </div>
     </div>
   )
 }
 
-// Tracker component shows answered/unanswered status and allows jumping
-function QuestionTracker({ questions, answers, goto, sidebar, timeElapsed, timeLimitMinutes, formatTime, studentName }) {
-  if (!questions.length) return null
-  const unanswered = questions.filter(q => answers[q.id] === undefined).length
-  const baseClasses = sidebar
-    ? 'sticky top-20 z-30 w-80 bg-white rounded-lg shadow p-3 border border-gray-200 h-fit'
-    : 'mb-6 bg-white rounded-lg shadow p-4 sticky top-20 z-30 border border-gray-200'
+function QuestionGrid({ questions, answers, onGoto }) {
   return (
-    <div className={baseClasses}>
-      <div className="mb-3">
-        {sidebar && studentName && <div className="text-xl font-bold mb-2">Xin chào, <span className="text-emerald-700">{studentName}</span></div>}
-        {timeLimitMinutes != null && Number(timeLimitMinutes) > 0 && (
-          <div className="mt-1 text-base text-gray-600">Giới hạn thời gian: {timeLimitMinutes} phút</div>
-        )}
-        {sidebar && <div className="mt-1 text-base text-gray-600">Tổng số câu: {questions.length}</div>}
-        <div className="mt-1 text-base text-gray-600">Chưa làm: {unanswered}</div>
+    <div className="grid grid-cols-6 lg:grid-cols-5 gap-1.5">
+      {questions.map((q, idx) => {
+        const answered = answers[q.id] !== undefined
+        return (
+          <button
+            key={q.id}
+            onClick={() => onGoto(q.id)}
+            title={answered ? `Câu ${idx + 1} — đã trả lời` : `Câu ${idx + 1} — chưa trả lời`}
+            className={cx(
+              'h-9 rounded-lg text-xs font-bold tnum border transition-colors',
+              answered
+                ? 'bg-accent-600 text-white border-accent-600 hover:bg-accent-700'
+                : 'bg-white text-slate-500 border-slate-300 hover:border-slate-400 hover:bg-slate-50'
+            )}
+          >
+            {idx + 1}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
-        {/* Timer moved here */}
-        <div className="mt-2 p-2 rounded-md bg-gray-50 border border-gray-200 flex items-center justify-between">
-          {(timeLimitMinutes != null && Number(timeLimitMinutes) > 0) ? (
-            <>
-              <span className="text-base text-gray-600">Còn lại:</span>
-              <span className="text-4xl font-mono font-semibold text-red-600">{formatTime(Math.max(timeLimitMinutes * 60 - timeElapsed, 0))}</span>
-            </>
-          ) : (
-            <>
-              <span className="text-xs text-gray-600">Đã trôi qua</span>
-              <span className="text-lg font-mono font-semibold text-green-600">{formatTime(timeElapsed)}</span>
-            </>
+function QuestionCard({ question, index, selected, onChoose }) {
+  const answered = selected !== undefined
+  return (
+    <article
+      id={'question-' + question.id}
+      className="scroll-mt-36 rounded-2xl border border-slate-200 bg-white shadow-card p-5 sm:p-6"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          className={cx(
+            'grid place-items-center w-8 h-8 rounded-lg text-sm font-bold shrink-0 tnum transition-colors',
+            answered ? 'bg-accent-600 text-white' : 'bg-slate-100 text-slate-500'
           )}
+        >
+          {index + 1}
+        </span>
+        <div className="min-w-0 flex-1 pt-1">
+          <h3 className="text-base font-semibold text-slate-900 leading-relaxed">{question.text}</h3>
         </div>
       </div>
-      <div className={sidebar ? 'grid grid-cols-4 gap-2' : 'grid grid-cols-8 sm:grid-cols-10 gap-2'}>
-        {questions.map((q, idx) => {
-          const answered = answers[q.id] !== undefined
+
+      <div className="mt-4 space-y-2 sm:pl-11">
+        {question.choices.map((choice, i) => {
+          const isSelected = String(selected) === String(i)
           return (
-            <button
-              key={q.id}
-              onClick={() => goto(q.id)}
-              className={`h-7 text-xs rounded-md font-medium transition-colors border flex items-center justify-center
-                ${answered ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : 'bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200'}`}
-              title={answered ? 'Đã chọn đáp án' : 'Chưa trả lời'}
-            >
-              {idx + 1}
-            </button>
+            <label key={i} className="block cursor-pointer">
+              <input
+                type="radio"
+                name={'q' + question.id}
+                className="peer sr-only"
+                checked={isSelected}
+                onChange={() => onChoose(question.id, i)}
+              />
+              <div
+                className={cx(
+                  'flex items-start gap-3 rounded-xl border-2 px-3.5 py-3 transition-all',
+                  'peer-focus-visible:ring-4 peer-focus-visible:ring-accent-500/30',
+                  isSelected
+                    ? 'border-accent-500 bg-accent-50'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                )}
+              >
+                <span
+                  className={cx(
+                    'grid place-items-center w-6 h-6 rounded-md text-xs font-bold shrink-0 transition-colors',
+                    isSelected
+                      ? 'bg-accent-600 text-white'
+                      : 'bg-slate-100 text-slate-500 border border-slate-200'
+                  )}
+                >
+                  {isSelected ? <Icon.Check className="w-4 h-4" /> : CHOICE_LETTERS[i] || i + 1}
+                </span>
+                <span
+                  className={cx(
+                    'text-sm leading-relaxed',
+                    isSelected ? 'text-accent-900 font-medium' : 'text-slate-700'
+                  )}
+                >
+                  {choice}
+                </span>
+              </div>
+            </label>
           )
         })}
       </div>
-
-    </div>
+    </article>
   )
 }
 
+function ResultModal({ info, onClose, passingThreshold }) {
+  const percent = info && info.total > 0 ? Math.round((info.score / info.total) * 100) : 0
+  const threshold =
+    typeof passingThreshold === 'number' && passingThreshold >= 0 ? passingThreshold : 80
+  const passed = percent >= threshold
+  const verdict = useMemo(() => {
+    if (percent === 100) return { label: 'Xuất sắc', note: 'Hoàn hảo! Bạn trả lời đúng tất cả câu hỏi.' }
+    if (passed) return { label: 'Đạt', note: 'Rất tốt! Bạn đã nắm vững kiến thức.' }
+    return { label: 'Chưa đạt', note: 'Hãy ôn tập lại và thử lại lần sau.' }
+  }, [percent, passed])
 
-
-function formatMinSec(seconds) {
-  const s = Math.max(0, Math.floor(seconds || 0))
-  const mins = Math.floor(s / 60)
-  const secs = s % 60
-  return `${mins} phút ${secs} giây`
-}
-
-function ResultModal({ info, onClose, formatTime, passingThreshold }) {
-  const percent = Math.round((info.score / info.total) * 100)
-  const threshold = typeof passingThreshold === 'number' && passingThreshold >= 0 ? passingThreshold : 80
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-4xl mx-4">
-        <div className="relative overflow-hidden rounded-xl shadow-2xl min-h-[450px] flex flex-col bg-white border-3 border-gray-700">
-          <div className="absolute inset-0 bg-center bg-cover bg-no-repeat blur-xs" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }} />
-          <div className="absolute inset-0 bg-gradient-to-br from-white/90 to-white/70 opacity-10" />
-          <div className="relative p-8 sm:p-10 grow flex flex-col">
-            <div className="relative flex items-center justify-center mb-4">
-              <h3 className="text-4xl font-extrabold text-center ">Kết quả bài làm</h3>
-              <button onClick={onClose} className="absolute right-0 p-2 rounded-full hover:bg-white/70" aria-label="Đóng">✕</button>
-            </div>
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="col-span-2 rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
-                <p className="text-xl font-bold text-gray-900">Họ tên: <span className="font-bold text-emerald-700">{info.name || '—'}</span></p>
-                {info.department && <p className="text-xl font-bold text-gray-900">Phòng ban: <span className="font-bold text-emerald-700">{info.department}</span></p>}
-                <div className="text-xl font-bold text-gray-900">Điểm: <span className="font-bold text-emerald-700">{info.score}<span className="text-gray-900">/{info.total}</span></span></div>
-                <div className="text-xl font-bold text-gray-900">Tỷ lệ đúng: <span className="font-bold text-emerald-700">{percent}%</span></div>
-                <div className="text-xl text-gray-900">(Ngưỡng yêu cầu: {threshold}%)</div>
+    <Modal
+      open={Boolean(info)}
+      onClose={onClose}
+      size="lg"
+      hideClose
+      closeOnBackdrop={false}
+      footer={
+        <Button variant="primary" size="lg" icon={Icon.ArrowRight} onClick={onClose}>
+          Về màn hình chính
+        </Button>
+      }
+    >
+      {info && (
+        <div className="text-center">
+          <p className="text-sm font-medium text-slate-500">Kết quả bài làm</p>
+          <h2 className="mt-1 text-2xl font-bold text-slate-900">{info.examTitle}</h2>
+
+          <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10">
+            <ScoreRing percent={percent} passed={passed} />
+
+            <div className="text-left space-y-3 min-w-0">
+              <div
+                className={cx(
+                  'inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border font-bold',
+                  passed
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                )}
+              >
+                {passed ? <Icon.CheckCircle className="w-5 h-5" /> : <Icon.Alert className="w-5 h-5" />}
+                <span className="text-lg">{verdict.label}</span>
               </div>
-              <div className="rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
-                <div className="text-xl font-bold text-gray-900">Thời gian làm</div>
-                <div className="mt-1 text-3xl font-extrabold text-emerald-700 font-mono">{formatMinSec(info.timeSpent)}</div>
-              </div>
-            </div>
-            <div className="rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
-              <h4 className="text-xl font-bold text-gray-900 mb-2">Nhận xét:</h4>
-              <p className="text-gray-800 text-center">
-                {percent === 100 && <><span className="text-4xl font-bold text-emerald-700">Xuất sắc</span> <br /> Hoàn hảo! Bạn trả lời đúng tất cả câu hỏi.</>}
-                {percent >= threshold && percent < 100 && <><span className="text-4xl font-bold text-emerald-700">Đạt</span> <br /> Rất tốt! Bạn đã nắm vững kiến thức.</>}
-                {percent < threshold && <><span className="text-4xl font-bold text-red-500">Chưa đạt</span> <br /> Hãy ôn tập lại và thử lại!</>}
-              </p>
-            </div>
-            <div className="mt-auto pt-4 flex justify-end gap-3">
-              <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-white/70">Về màn hình chính</button>
+              <p className="text-sm text-slate-600 leading-relaxed max-w-xs">{verdict.note}</p>
+              <p className="text-xs text-slate-400">Ngưỡng đạt của bài thi: {threshold}%</p>
             </div>
           </div>
+
+          <dl className="mt-7 grid grid-cols-2 sm:grid-cols-4 gap-3 text-left">
+            <Stat label="Họ tên" value={info.name || '—'} />
+            <Stat label="Phòng ban" value={info.department || '—'} />
+            <Stat
+              label="Số câu đúng"
+              value={
+                <>
+                  <span className="text-accent-700">{info.score}</span>
+                  <span className="text-slate-400">/{info.total}</span>
+                </>
+              }
+            />
+            <Stat label="Thời gian làm" value={formatMinSec(info.timeSpent)} />
+          </dl>
         </div>
-      </div>
+      )}
+    </Modal>
+  )
+}
+
+function Stat({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 min-w-0">
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="mt-1 text-sm font-bold text-slate-900 truncate" title={typeof value === 'string' ? value : undefined}>
+        {value}
+      </dd>
     </div>
   )
 }
