@@ -4,7 +4,7 @@ const multer = require('multer');
 const db = require('./db');
 const questions = require('./questions');
 const results = require('./results');
-const settings = require('./settings');
+const exams = require('./exams');
 
 const app = express();
 app.use(cors());
@@ -18,7 +18,7 @@ const upload = multer({
 
 app.use('/api/questions', upload.single('file'), questions);
 app.use('/api/results', results);
-app.use('/api/settings', settings);
+app.use('/api/exams', exams);
 
 const PORT = process.env.PORT || 3001;
 

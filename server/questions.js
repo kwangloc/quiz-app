@@ -4,7 +4,10 @@ const ExcelJS = require('exceljs');
 const router = express.Router();
 
 router.get('/', (req, res) => {
-  db.all('SELECT * FROM questions', [], (err, rows) => {
+  const { examId } = req.query;
+  const sql = examId ? 'SELECT * FROM questions WHERE examId = ?' : 'SELECT * FROM questions';
+  const params = examId ? [examId] : [];
+  db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     const parsed = rows.map(r => ({ ...r, choices: JSON.parse(r.choices) }));
     res.json(parsed);
@@ -12,10 +15,11 @@ router.get('/', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { text, choices, correct } = req.body;
+  const { text, choices, correct, examId } = req.body;
+  if (!examId) return res.status(400).json({ error: 'examId is required' });
   db.run(
-    'INSERT INTO questions(text, choices, correct) VALUES (?, ?, ?)',
-    [text, JSON.stringify(choices), correct],
+    'INSERT INTO questions(text, choices, correct, examId) VALUES (?, ?, ?, ?)',
+    [text, JSON.stringify(choices), correct, examId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ id: this.lastID });
@@ -51,8 +55,10 @@ router.delete('/:id', (req, res) => {
 // Import questions from Excel file
 router.post('/import', async (req, res) => {
   try {
+    const { examId } = req.body;
+    if (!examId) return res.status(400).json({ error: 'examId is required' });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    
+
     // Parse Excel file from buffer
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(req.file.buffer);
@@ -121,8 +127,8 @@ router.post('/import', async (req, res) => {
       
       // Insert into database
       db.run(
-        'INSERT INTO questions(text, choices, correct) VALUES (?, ?, ?)',
-        [textStr, JSON.stringify(choicesArray), correct],
+        'INSERT INTO questions(text, choices, correct, examId) VALUES (?, ?, ?, ?)',
+        [textStr, JSON.stringify(choicesArray), correct, examId],
         function (err) {
           if (err) {
             results.errors.push({ row: rowNum, message: `Database error: ${err.message}` });
@@ -143,11 +149,13 @@ router.post('/import', async (req, res) => {
   }
 });
 
-// Clear all questions
+// Clear all questions for one exam
 router.post('/clear-all', (req, res) => {
-  db.run('DELETE FROM questions', [], function (err) {
+  const { examId } = req.body || {};
+  if (!examId) return res.status(400).json({ error: 'examId is required' });
+  db.run('DELETE FROM questions WHERE examId = ?', [examId], function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true, deleted: this.changes });
+    res.json({ success: true });
   });
 });
 
