@@ -7,6 +7,34 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 const DB_FILE = path.join(DATA_DIR, 'db.sqlite');
 
+// Seeded into the departments table the first time the app runs against a DB.
+// Admins edit the list from the dashboard afterwards; this array is never re-applied.
+const DEFAULT_DEPARTMENTS = [
+  'Phòng Tài chính',
+  'Phòng Kế hoạch kinh doanh',
+  'Phòng Chính trị',
+  'Phòng Thiết kế Công nghệ',
+  'Phòng Tổ chức lao động',
+  'Phòng Kỹ thuật',
+  'Phòng Vật tư',
+  'Phòng Điều độ sản xuất',
+  'Phòng Hành chính Hậu cần',
+  'Phòng An toàn',
+  'Phòng KCS',
+  'Phòng Cơ điện',
+  'Xí nghiệp Cơ khí Điện tàu',
+  'Xí nghiệp Nhôm Composite',
+  'Xí nghiệp Sơn và nội thất tàu',
+  'Xí nghiệp Dịch vụ cảng và xử lý chất thải nguy hại',
+  'Xí nghiệp Ván ống',
+  'Xí nghiệp Vũ khí hải tài',
+  'Xí nghiệp Đà đốc',
+  'Xí nghiệp Động Lực',
+  'Xí nghiệp Thương mại',
+  'Xí nghiệp Vỏ 1',
+  'Xí nghiệp Vỏ 2',
+];
+
 let SQL = null;
 let db = null;
 
@@ -43,6 +71,7 @@ async function init() {
   db.exec(`CREATE TABLE IF NOT EXISTS results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     studentName TEXT,
+    department TEXT,
     answers TEXT,
     score INTEGER,
     total INTEGER,
@@ -68,6 +97,21 @@ async function init() {
     createdAt TEXT
   );`);
 
+  db.exec(`CREATE TABLE IF NOT EXISTS departments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    sortOrder INTEGER,
+    createdAt TEXT
+  );`);
+
+  // Which departments each exam is offered to (many-to-many). An exam with no rows
+  // here is not offered to anyone — see exams.js.
+  db.exec(`CREATE TABLE IF NOT EXISTS exam_departments (
+    examId INTEGER NOT NULL,
+    departmentId INTEGER NOT NULL,
+    PRIMARY KEY (examId, departmentId)
+  );`);
+
   // Migrate existing DBs: ensure required columns exist on results
   try {
     const pragma = db.exec(`PRAGMA table_info(results);`);
@@ -82,6 +126,7 @@ async function init() {
       if (!existingCols.has('total')) toAdd.push({ name: 'total', type: 'INTEGER' });
       if (!existingCols.has('examId')) toAdd.push({ name: 'examId', type: 'INTEGER' });
       if (!existingCols.has('examTitle')) toAdd.push({ name: 'examTitle', type: 'TEXT' });
+      if (!existingCols.has('department')) toAdd.push({ name: 'department', type: 'TEXT' });
       toAdd.forEach(col => {
         try { db.exec(`ALTER TABLE results ADD COLUMN ${col.name} ${col.type};`); } catch (e) {}
       });
@@ -148,6 +193,43 @@ async function init() {
     }
   } catch (e) {
     console.error('Exam backfill migration error:', e);
+  }
+
+  // One-time seed of the department list. Guarded by a settings flag rather than by
+  // "is the table empty" so that an admin who deletes departments does not get the
+  // defaults resurrected on the next start.
+  try {
+    const seededRes = db.exec("SELECT value FROM settings WHERE key = 'departmentsSeeded';");
+    const alreadySeeded = seededRes && seededRes[0] && seededRes[0].values.length > 0;
+    if (!alreadySeeded) {
+      const now = new Date().toISOString();
+      const insertDept = db.prepare('INSERT OR IGNORE INTO departments(name, sortOrder, createdAt) VALUES (?, ?, ?)');
+      DEFAULT_DEPARTMENTS.forEach((name, idx) => insertDept.run([name, idx, now]));
+      insertDept.free();
+      const flagStmt = db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('departmentsSeeded', '1')");
+      flagStmt.run([]);
+      flagStmt.free();
+    }
+  } catch (e) {
+    console.error('Department seed error:', e);
+  }
+
+  // One-time backfill: exams that predate departments have no assignments, and an
+  // unassigned exam is invisible to candidates. Attach those to every department so
+  // nothing silently disappears; the admin trims the list from the dashboard.
+  // Runs after the seed above so the departments actually exist to attach to.
+  try {
+    const flagRes = db.exec("SELECT value FROM settings WHERE key = 'examDepartmentsBackfilled';");
+    const alreadyBackfilled = flagRes && flagRes[0] && flagRes[0].values.length > 0;
+    if (!alreadyBackfilled) {
+      db.exec(`INSERT OR IGNORE INTO exam_departments(examId, departmentId)
+               SELECT e.id, d.id FROM exams e CROSS JOIN departments d;`);
+      const flagStmt = db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('examDepartmentsBackfilled', '1')");
+      flagStmt.run([]);
+      flagStmt.free();
+    }
+  } catch (e) {
+    console.error('Exam-department backfill error:', e);
   }
 
   persist();

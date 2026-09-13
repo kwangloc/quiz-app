@@ -4,12 +4,38 @@ import Header from '../components/Header'
 const RESULT_BG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='400'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%23d1fae5' offset='0'/%3E%3Cstop stop-color='%23a7f3d0' offset='1'/%3E%3C/linearGradient%3E%3Cpattern id='dots' x='0' y='0' width='24' height='24' patternUnits='userSpaceOnUse'%3E%3Ccircle cx='2' cy='2' r='2' fill='%2300000030'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Crect width='100%25' height='100%25' fill='url(%23dots)'/%3E%3C/svg%3E"
 import logo from '../assets/images/bg.jpg'
 
+// Below this many entries a search box is more clutter than help
+const SEARCH_THRESHOLD = 5
+
+// Diacritic-insensitive matching so "dong luc" finds "Xí nghiệp Động Lực".
+// đ has no combining form to strip, so it is mapped explicitly after NFD.
+function normalizeVi(s) {
+  return String(s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+}
+
+function matchesQuery(text, query) {
+  const q = normalizeVi(query).trim()
+  if (!q) return true
+  // Every whitespace-separated term must appear, so word order does not matter
+  return q.split(/\s+/).every(term => normalizeVi(text).includes(term))
+}
+
 export default function StudentPage({ setMode }){
   const [exams, setExams] = useState([])
   const [selectedExam, setSelectedExam] = useState(null)
   const [questions, setQuestions] = useState([])
   const [examQuestions, setExamQuestions] = useState(null)
   const [name, setName] = useState('')
+  const [departments, setDepartments] = useState([])
+  const [selectedDepartment, setSelectedDepartment] = useState(null)
+  const [loadingSetup, setLoadingSetup] = useState(true)
+  const [loadingExams, setLoadingExams] = useState(false)
+  const [deptQuery, setDeptQuery] = useState('')
+  const [examQuery, setExamQuery] = useState('')
   const [answers, setAnswers] = useState({})
   const [startTime, setStartTime] = useState(null)
   const [timeElapsed, setTimeElapsed] = useState(0)
@@ -21,8 +47,31 @@ export default function StudentPage({ setMode }){
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
   useEffect(()=>{
-    fetch('http://localhost:3001/api/exams').then(r=>r.json()).then(setExams).catch(()=>{})
+    fetch('http://localhost:3001/api/departments')
+      .then(r=>r.json())
+      .then(list => {
+        setDepartments(list)
+        // No departments configured yet — fall back to offering every exam so the
+        // app stays usable before an admin sets the list up.
+        if (!list.length) {
+          return fetch('http://localhost:3001/api/exams').then(r=>r.json()).then(setExams)
+        }
+      })
+      .catch(()=>{})
+      .finally(() => setLoadingSetup(false))
   }, [])
+
+  function selectDepartment(dept) {
+    setSelectedDepartment(dept)
+    setExams([])
+    setExamQuery('')
+    setLoadingExams(true)
+    fetch(`http://localhost:3001/api/exams?departmentId=${dept.id}`)
+      .then(r=>r.json())
+      .then(setExams)
+      .catch(()=>{})
+      .finally(() => setLoadingExams(false))
+  }
 
   function selectExam(exam) {
     setSelectedExam(exam)
@@ -104,6 +153,7 @@ export default function StudentPage({ setMode }){
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
           studentName: name,
+          department: selectedDepartment?.name || null,
           examId: selectedExam?.id,
           answers,
           score,
@@ -121,6 +171,7 @@ export default function StudentPage({ setMode }){
       setSubmitted(true)
       setResultInfo({
         name,
+        department: selectedDepartment?.name || '',
         score,
         total: (examQuestions || questions).length,
         timeSpent: timeElapsed,
@@ -132,37 +183,85 @@ export default function StudentPage({ setMode }){
     }
   }
 
-  function handleQuit() {
+  // Back to the very start of the flow — the next candidate picks their own department
+  function resetToStart() {
     setStarted(false)
     setName('')
+    setSelectedExam(null)
+    setSelectedDepartment(null)
+    setDeptQuery('')
+    setExamQuery('')
+    setExamQuestions(null)
     setAnswers({})
     setStartTime(null)
     setTimeElapsed(0)
     setSubmitted(false)
+  }
+
+  function handleQuit() {
+    resetToStart()
     setShowQuitConfirm(false)
   }
 
-  // Show exam picker if no exam has been selected yet
-  if (!selectedExam) {
+  // Hold the flow until the department list is in — otherwise the exam picker below
+  // renders first and flashes "no exams available" before the real first step appears.
+  if (loadingSetup) {
+    return (
+      <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
+        <Header currentMode="student" setMode={setMode} isFixed={false} />
+        <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
+          <div className="bg-white rounded-lg shadow-2xl px-8 py-6">
+            <p className="text-gray-500">Đang tải...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Step 1 — pick a department (skipped entirely when the admin has configured none)
+  if (departments.length > 0 && !selectedDepartment) {
+    const filtered = departments.filter(d => matchesQuery(d.name, deptQuery))
     return (
       <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
         <Header currentMode="student" setMode={setMode} isFixed={false} />
 
         <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
-          <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg">
-            <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">Chọn bài thi</h2>
-            {exams.length === 0 ? (
-              <p className="text-center text-gray-500">Chưa có bài thi nào. Vui lòng liên hệ quản trị viên.</p>
+          <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-3xl">
+            <h2 className="text-3xl font-bold text-center text-gray-800 mb-1">Chọn phòng ban</h2>
+            <p className="text-center text-gray-500 mb-6">Bước 1/3 — Chọn phòng ban của bạn</p>
+            {departments.length > SEARCH_THRESHOLD && (
+              <div className="mb-4">
+                <input
+                  type="text"
+                  autoFocus
+                  value={deptQuery}
+                  onChange={e => setDeptQuery(e.target.value)}
+                  onKeyDown={e => {
+                    // One match left — Enter picks it without reaching for the mouse
+                    if (e.key === 'Enter' && filtered.length === 1) selectDepartment(filtered[0])
+                    if (e.key === 'Escape') setDeptQuery('')
+                  }}
+                  placeholder="Tìm phòng ban... (không cần dấu)"
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-green-600"
+                />
+                {deptQuery.trim() !== '' && (
+                  <p className="text-sm text-gray-500 mt-1.5">
+                    Tìm thấy {filtered.length}/{departments.length} phòng ban
+                  </p>
+                )}
+              </div>
+            )}
+            {filtered.length === 0 ? (
+              <p className="text-center text-gray-500 py-6">Không tìm thấy phòng ban phù hợp.</p>
             ) : (
-              <div className="space-y-3">
-                {exams.map(exam => (
+              <div className="grid gap-3 sm:grid-cols-2 max-h-[55vh] overflow-y-auto pr-1">
+                {filtered.map(dept => (
                   <button
-                    key={exam.id}
-                    onClick={() => selectExam(exam)}
-                    className="w-full text-left px-5 py-4 border-2 border-gray-200 rounded-lg hover:border-green-600 hover:bg-green-50 transition flex items-center justify-between"
+                    key={dept.id}
+                    onClick={() => selectDepartment(dept)}
+                    className="text-left px-5 py-4 border-2 border-gray-200 rounded-lg hover:border-green-600 hover:bg-green-50 transition font-semibold text-gray-800"
                   >
-                    <span className="font-semibold text-gray-800">{exam.title}</span>
-                    <span className="text-sm text-gray-500 whitespace-nowrap ml-3">{exam.questionCount ?? 0} câu hỏi</span>
+                    {dept.name}
                   </button>
                 ))}
               </div>
@@ -179,7 +278,91 @@ export default function StudentPage({ setMode }){
     )
   }
 
-  // Show start screen if exam selected but not started
+  // Step 2 — pick an exam from the ones offered to that department
+  if (!selectedExam) {
+    const filtered = exams.filter(e => matchesQuery(e.title, examQuery))
+    return (
+      <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
+        <Header currentMode="student" setMode={setMode} isFixed={false} />
+
+        <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
+          <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg">
+            <h2 className="text-3xl font-bold text-center text-gray-800 mb-1">Chọn bài thi</h2>
+            {selectedDepartment && (
+              <p className="text-center text-gray-500 mb-6">
+                Bước 2/3 — Phòng ban: <span className="font-semibold text-emerald-700">{selectedDepartment.name}</span>
+              </p>
+            )}
+            {loadingExams ? (
+              <p className="text-center text-gray-500">Đang tải danh sách bài thi...</p>
+            ) : exams.length === 0 ? (
+              <p className="text-center text-gray-500">
+                {selectedDepartment
+                  ? 'Phòng ban này chưa được giao bài thi nào. Vui lòng liên hệ quản trị viên.'
+                  : 'Chưa có bài thi nào. Vui lòng liên hệ quản trị viên.'}
+              </p>
+            ) : (
+              <>
+                {exams.length > SEARCH_THRESHOLD && (
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={examQuery}
+                      onChange={e => setExamQuery(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && filtered.length === 1) selectExam(filtered[0])
+                        if (e.key === 'Escape') setExamQuery('')
+                      }}
+                      placeholder="Tìm bài thi... (không cần dấu)"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-green-600"
+                    />
+                    {examQuery.trim() !== '' && (
+                      <p className="text-sm text-gray-500 mt-1.5">
+                        Tìm thấy {filtered.length}/{exams.length} bài thi
+                      </p>
+                    )}
+                  </div>
+                )}
+                {filtered.length === 0 ? (
+                  <p className="text-center text-gray-500 py-6">Không tìm thấy bài thi phù hợp.</p>
+                ) : (
+                  <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+                    {filtered.map(exam => (
+                      <button
+                        key={exam.id}
+                        onClick={() => selectExam(exam)}
+                        className="w-full text-left px-5 py-4 border-2 border-gray-200 rounded-lg hover:border-green-600 hover:bg-green-50 transition flex items-center justify-between"
+                      >
+                        <span className="font-semibold text-gray-800">{exam.title}</span>
+                        <span className="text-sm text-gray-500 whitespace-nowrap ml-3">{exam.questionCount ?? 0} câu hỏi</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+            {selectedDepartment && (
+              <button
+                onClick={() => { setSelectedDepartment(null); setExams([]); setDeptQuery(''); setExamQuery('') }}
+                className="w-full mt-4 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition"
+              >
+                ← Đổi phòng ban
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="absolute bottom-3 inset-x-0 text-center">
+          <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm shadow-lg ring-1 ring-white/20 text-white/90 text-sm font-medium tracking-wide">
+            <span className="text-amber-300">✦</span>
+            Designed by <span className="font-semibold text-white">Quốc Vinh</span>
+          </span>
+        </p>
+      </div>
+    )
+  }
+
+  // Step 3 — name entry, then start
   if (!started) {
     return (
       <div className="relative min-h-screen bg-gradient-to-br from-green-600 to-green-800">
@@ -187,7 +370,12 @@ export default function StudentPage({ setMode }){
 
           <div className="mt-1 flex items-center justify-center p-4 min-h-[calc(100vh-80px)] bg-center bg-cover" style={{ backgroundImage: `url(${logo})`, backgroundColor: '#f0fdf4' }}>
             <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
-              <h2 className="text-3xl font-bold text-center text-gray-800 mb-2">{selectedExam.title}</h2>
+              <h2 className="text-3xl font-bold text-center text-gray-800 mb-1">{selectedExam.title}</h2>
+              {selectedDepartment && (
+                <p className="text-center text-gray-500 mb-4">
+                  Bước 3/3 — Phòng ban: <span className="font-semibold text-emerald-700">{selectedDepartment.name}</span>
+                </p>
+              )}
 
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Nhập tên của bạn:</label>
@@ -255,13 +443,7 @@ export default function StudentPage({ setMode }){
                   info={resultInfo}
                   onClose={() => {
                     setResultInfo(null)
-                    setStarted(false)
-                    setName('')
-                    setAnswers({})
-                    setExamQuestions(null)
-                    setStartTime(null)
-                    setTimeElapsed(0)
-                    setSubmitted(false)
+                    resetToStart()
                   }}
                   formatTime={formatTime}
                   passingThreshold={selectedExam?.passingThreshold}
@@ -446,6 +628,7 @@ function ResultModal({ info, onClose, formatTime, passingThreshold }) {
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="col-span-2 rounded-xl p-4 border border-emerald-100 shadow bg-gradient-to-br from-white/80 to-white/60">
                 <p className="text-xl font-bold text-gray-900">Họ tên: <span className="font-bold text-emerald-700">{info.name || '—'}</span></p>
+                {info.department && <p className="text-xl font-bold text-gray-900">Phòng ban: <span className="font-bold text-emerald-700">{info.department}</span></p>}
                 <div className="text-xl font-bold text-gray-900">Điểm: <span className="font-bold text-emerald-700">{info.score}<span className="text-gray-900">/{info.total}</span></span></div>
                 <div className="text-xl font-bold text-gray-900">Tỷ lệ đúng: <span className="font-bold text-emerald-700">{percent}%</span></div>
                 <div className="text-xl text-gray-900">(Ngưỡng yêu cầu: {threshold}%)</div>

@@ -29,7 +29,7 @@ function formatMinSec(seconds) {
 }
 
 router.post('/', (req, res) => {
-  const { studentName, answers, score, total, startTime, submitTime, timeSpent, examId } = req.body;
+  const { studentName, department, answers, score, total, startTime, submitTime, timeSpent, examId } = req.body;
   if (!studentName) {
     return res.status(400).json({ error: 'studentName is required' });
   }
@@ -37,8 +37,8 @@ router.post('/', (req, res) => {
 
   function insertResult(examTitle) {
     db.run(
-      'INSERT INTO results(studentName, answers, score, total, percent, createdAt, startTime, submitTime, timeSpent, examId, examTitle) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [studentName, JSON.stringify(answers), score, total, percent, new Date().toISOString(), startTime, submitTime, timeSpent, examId || null, examTitle],
+      'INSERT INTO results(studentName, department, answers, score, total, percent, createdAt, startTime, submitTime, timeSpent, examId, examTitle) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [studentName, department || null, JSON.stringify(answers), score, total, percent, new Date().toISOString(), startTime, submitTime, timeSpent, examId || null, examTitle],
       function (err) {
         if (err) {
           console.error('Insert result error:', err);
@@ -92,6 +92,7 @@ router.get('/export', async (req, res) => {
     const sheet = workbook.addWorksheet('Results');
     const columnDefs = [
       { header: 'Tên', key: 'studentName', width: 25 },
+      { header: 'Phòng ban', key: 'department', width: 30 },
       // Only needed when exporting across exams — a single-exam export already states it in the metadata above
       ...(examId ? [] : [{ header: 'Bài thi', key: 'examTitle', width: 25 }]),
       { header: 'Ngày', key: 'createdAt', width: 16 },
@@ -141,6 +142,7 @@ router.get('/export', async (req, res) => {
     rows.forEach(r => {
       sheet.addRow({
         studentName: r.studentName,
+        department: r.department || 'N/A',
         examTitle: r.examTitle || 'N/A',
         score: r.score,
         total: r.total || 'N/A',

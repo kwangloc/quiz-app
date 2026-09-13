@@ -6,10 +6,14 @@ export default function TeacherPage({ setMode }) {
   const [selectedExamId, setSelectedExamId] = useState(null);
   const [examModalOpen, setExamModalOpen] = useState(false);
   const [editingExamId, setEditingExamId] = useState(null);
-  const [examForm, setExamForm] = useState({ title: "", timeLimitMinutes: "0", passingThreshold: "80", numQuestions: "" });
+  const [examForm, setExamForm] = useState({ title: "", timeLimitMinutes: "0", passingThreshold: "80", numQuestions: "", departmentIds: [] });
   const [resultsExamFilter, setResultsExamFilter] = useState("");
   const [questions, setQuestions] = useState([]);
   const [results, setResults] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [newDepartment, setNewDepartment] = useState("");
+  const [editingDeptId, setEditingDeptId] = useState(null);
+  const [editDeptName, setEditDeptName] = useState("");
   const [activeTab, setActiveTab] = useState("exams");
   const [text, setText] = useState("");
   const [choices, setChoices] = useState(["", "", "", ""]);
@@ -68,9 +72,20 @@ export default function TeacherPage({ setMode }) {
     }
   }
 
+  async function loadDepartments() {
+    try {
+      const r = await fetch("http://localhost:3001/api/departments");
+      const data = await r.json();
+      setDepartments(data);
+    } catch (e) {
+      console.error("Error fetching departments:", e);
+    }
+  }
+
   useEffect(() => {
     loadExams();
     loadResults();
+    loadDepartments();
   }, []);
 
   useEffect(() => {
@@ -167,7 +182,7 @@ export default function TeacherPage({ setMode }) {
 
   function openCreateExam() {
     setEditingExamId(null);
-    setExamForm({ title: "", timeLimitMinutes: "0", passingThreshold: "80", numQuestions: "" });
+    setExamForm({ title: "", timeLimitMinutes: "0", passingThreshold: "80", numQuestions: "", departmentIds: [] });
     setExamModalOpen(true);
   }
 
@@ -178,8 +193,22 @@ export default function TeacherPage({ setMode }) {
       timeLimitMinutes: String(exam.timeLimitMinutes ?? 0),
       passingThreshold: String(exam.passingThreshold ?? 80),
       numQuestions: exam.numQuestions != null ? String(exam.numQuestions) : "",
+      departmentIds: exam.departmentIds || [],
     });
     setExamModalOpen(true);
+  }
+
+  function toggleExamDepartment(deptId) {
+    setExamForm((f) => ({
+      ...f,
+      departmentIds: f.departmentIds.includes(deptId)
+        ? f.departmentIds.filter((id) => id !== deptId)
+        : [...f.departmentIds, deptId],
+    }));
+  }
+
+  function setAllExamDepartments(all) {
+    setExamForm((f) => ({ ...f, departmentIds: all ? departments.map((d) => d.id) : [] }));
   }
 
   async function saveExam() {
@@ -202,6 +231,7 @@ export default function TeacherPage({ setMode }) {
       timeLimitMinutes: Math.floor(t),
       passingThreshold: Math.floor(p),
       numQuestions: n,
+      departmentIds: examForm.departmentIds,
     });
     const url = editingExamId
       ? `http://localhost:3001/api/exams/${editingExamId}`
@@ -228,6 +258,63 @@ export default function TeacherPage({ setMode }) {
     if (selectedExamId === exam.id) setSelectedExamId(null);
     await loadExams();
     showNotification("Đã xóa bài thi");
+  }
+
+  async function addDepartment() {
+    const name = newDepartment.trim();
+    if (!name) return showNotification("Tên phòng ban là bắt buộc", "error");
+    const res = await fetch("http://localhost:3001/api/departments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return showNotification(data.error || "Không thể thêm phòng ban", "error");
+    }
+    setNewDepartment("");
+    await loadDepartments();
+    showNotification("Đã thêm phòng ban");
+  }
+
+  function startEditDepartment(dept) {
+    setEditingDeptId(dept.id);
+    setEditDeptName(dept.name);
+  }
+
+  async function saveDepartment() {
+    const name = editDeptName.trim();
+    if (!name) return showNotification("Tên phòng ban là bắt buộc", "error");
+    const res = await fetch(`http://localhost:3001/api/departments/${editingDeptId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return showNotification(data.error || "Không thể cập nhật phòng ban", "error");
+    }
+    setEditingDeptId(null);
+    setEditDeptName("");
+    await loadDepartments();
+    // Exam rows embed department names, so they go stale on a rename
+    await loadExams();
+    showNotification("Đã cập nhật phòng ban");
+  }
+
+  async function deleteDepartment(dept) {
+    if (
+      !confirm(
+        `Xóa phòng ban "${dept.name}"? Kết quả thi đã lưu vẫn giữ nguyên tên phòng ban cũ.`,
+      )
+    )
+      return;
+    await fetch(`http://localhost:3001/api/departments/${dept.id}`, { method: "DELETE" });
+    if (editingDeptId === dept.id) setEditingDeptId(null);
+    await loadDepartments();
+    // Deleting a department drops its exam assignments server-side
+    await loadExams();
+    showNotification("Đã xóa phòng ban");
   }
 
   function manageExamQuestions(examId) {
@@ -354,6 +441,12 @@ export default function TeacherPage({ setMode }) {
               Quản lý câu hỏi
             </button>
             <button
+              onClick={() => setActiveTab("departments")}
+              className={`px-4 py-2 font-medium ${activeTab === "departments" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-600"}`}
+            >
+              Phòng ban
+            </button>
+            <button
               onClick={() => setActiveTab("results")}
               className={`px-4 py-2 font-medium ${activeTab === "results" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-600"}`}
             >
@@ -382,13 +475,32 @@ export default function TeacherPage({ setMode }) {
                       key={exam.id}
                       className="p-4 border rounded-lg hover:bg-gray-50 flex justify-between items-center flex-wrap gap-3"
                     >
-                      <div>
+                      <div className="min-w-0">
                         <div className="font-semibold text-gray-800 text-lg">{exam.title}</div>
                         <div className="text-sm text-gray-500 mt-1 flex gap-4 flex-wrap">
                           <span>{exam.questionCount ?? 0} câu hỏi</span>
                           <span>{exam.timeLimitMinutes > 0 ? `${exam.timeLimitMinutes} phút` : "Không giới hạn thời gian"}</span>
                           <span>Ngưỡng đạt: {exam.passingThreshold}%</span>
                           <span>{exam.numQuestions ? `Rút ${exam.numQuestions} câu/lượt` : "Dùng tất cả câu hỏi"}</span>
+                        </div>
+                        <div className="mt-2">
+                          {(exam.departmentNames || []).length === 0 ? (
+                            <span className="text-sm text-amber-600">
+                              ⚠️ Chưa giao cho phòng ban nào — người thi sẽ không thấy bài thi này
+                            </span>
+                          ) : (
+                            <div className="flex gap-1.5 flex-wrap">
+                              <span className="text-sm text-gray-500 mr-1">Phòng ban:</span>
+                              {exam.departmentNames.map((n) => (
+                                <span
+                                  key={n}
+                                  className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-xs"
+                                >
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
@@ -704,6 +816,96 @@ export default function TeacherPage({ setMode }) {
             </>
           )}
 
+          {/* Departments Tab */}
+          {activeTab === "departments" && (
+            <section className="bg-white p-6 rounded-lg shadow">
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-2xl font-bold text-blue-900">Danh sách phòng ban</h3>
+                <span className="text-sm text-gray-500">
+                  Tổng số: <span className="font-semibold text-gray-700">{departments.length}</span>
+                </span>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">
+                Người thi sẽ chọn phòng ban từ danh sách này trước khi bắt đầu làm bài.
+              </p>
+
+              <div className="flex gap-2 mb-6">
+                <input
+                  className="flex-1 p-2 border-2 border-blue-300 rounded-lg focus:outline-none focus:border-blue-600"
+                  value={newDepartment}
+                  onChange={(e) => setNewDepartment(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addDepartment()}
+                  placeholder="Nhập tên phòng ban mới..."
+                />
+                <button
+                  onClick={addDepartment}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold whitespace-nowrap"
+                >
+                  + Thêm phòng ban
+                </button>
+              </div>
+
+              {departments.length === 0 ? (
+                <p className="text-gray-500">Chưa có phòng ban nào.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {departments.map((dept, idx) => (
+                    <li key={dept.id} className="p-3 border rounded hover:bg-gray-50">
+                      {editingDeptId === dept.id ? (
+                        <div className="flex gap-2 items-center">
+                          <span className="text-gray-500 font-semibold">{idx + 1}.</span>
+                          <input
+                            className="flex-1 p-2 border rounded"
+                            value={editDeptName}
+                            autoFocus
+                            onChange={(e) => setEditDeptName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveDepartment();
+                              if (e.key === "Escape") setEditingDeptId(null);
+                            }}
+                          />
+                          <button
+                            onClick={saveDepartment}
+                            className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                          >
+                            Lưu
+                          </button>
+                          <button
+                            onClick={() => setEditingDeptId(null)}
+                            className="px-3 py-1 border rounded text-sm hover:bg-gray-100"
+                          >
+                            Hủy
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between items-center gap-3">
+                          <div className="font-medium text-gray-800 flex items-start gap-2">
+                            <span className="text-gray-500 font-semibold">{idx + 1}.</span>
+                            <span>{dept.name}</span>
+                          </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <button
+                              onClick={() => startEditDepartment(dept)}
+                              className="px-3 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
+                            >
+                              Sửa
+                            </button>
+                            <button
+                              onClick={() => deleteDepartment(dept)}
+                              className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                            >
+                              Xóa
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
           {/* Results Tab */}
           {activeTab === "results" && (
             <section className="bg-white p-6 rounded-lg shadow">
@@ -755,6 +957,9 @@ export default function TeacherPage({ setMode }) {
                           Tên
                         </th>
                         <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap">
+                          Phòng ban
+                        </th>
+                        <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap">
                           Bài thi
                         </th>
                         <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap">
@@ -794,6 +999,9 @@ export default function TeacherPage({ setMode }) {
                         >
                           <td className="px-3 py-2.5 text-gray-800">
                             {result.studentName}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-600">
+                            {result.department || "N/A"}
                           </td>
                           <td className="px-3 py-2.5 text-gray-600">
                             {result.examTitle || "N/A"}
@@ -898,7 +1106,7 @@ export default function TeacherPage({ setMode }) {
                     />
                   </div>
                 </div>
-                <div className="mb-6">
+                <div className="mb-4">
                   <label className="block text-sm font-medium mb-1">Số câu hỏi rút ngẫu nhiên mỗi lượt thi</label>
                   <input
                     type="number"
@@ -909,6 +1117,58 @@ export default function TeacherPage({ setMode }) {
                     placeholder="Để trống = dùng tất cả câu hỏi"
                   />
                   <p className="text-xs text-gray-500 mt-1">Để trống nếu muốn dùng toàn bộ ngân hàng câu hỏi mỗi lượt thi</p>
+                </div>
+                <div className="mb-6">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-sm font-medium">
+                      Giao cho phòng ban{" "}
+                      <span className="text-gray-500 font-normal">({examForm.departmentIds.length} đã chọn)</span>
+                    </label>
+                    <div className="flex gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setAllExamDepartments(true)}
+                        className="text-blue-600 hover:underline"
+                      >
+                        Chọn tất cả
+                      </button>
+                      <span className="text-gray-300">|</span>
+                      <button
+                        type="button"
+                        onClick={() => setAllExamDepartments(false)}
+                        className="text-blue-600 hover:underline"
+                      >
+                        Bỏ chọn tất cả
+                      </button>
+                    </div>
+                  </div>
+                  {departments.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      Chưa có phòng ban nào. Hãy thêm ở tab "Phòng ban" trước.
+                    </p>
+                  ) : (
+                    <div className="border rounded max-h-52 overflow-y-auto p-2 space-y-1">
+                      {departments.map((dept) => (
+                        <label
+                          key={dept.id}
+                          className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4"
+                            checked={examForm.departmentIds.includes(dept.id)}
+                            onChange={() => toggleExamDepartment(dept.id)}
+                          />
+                          <span>{dept.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {examForm.departmentIds.length === 0 && departments.length > 0 && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      ⚠️ Chưa chọn phòng ban nào — người thi sẽ không thấy bài thi này.
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2 justify-end">
                   <button

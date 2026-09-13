@@ -5,6 +5,7 @@ const db = require('./db');
 const questions = require('./questions');
 const results = require('./results');
 const exams = require('./exams');
+const departments = require('./departments');
 
 const app = express();
 app.use(cors());
@@ -19,6 +20,7 @@ const upload = multer({
 app.use('/api/questions', upload.single('file'), questions);
 app.use('/api/results', results);
 app.use('/api/exams', exams);
+app.use('/api/departments', departments);
 
 const PORT = process.env.PORT || 3001;
 

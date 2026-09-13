@@ -4,6 +4,9 @@ A simple offline quiz application built with Electron Desktop App
 
 ## Features
 - Teacher can create multiple-choice questions
+- Exams are assigned to departments (an exam can serve several); candidates only see their own department's exams
+- Candidate flow: pick department → pick exam → enter name
+- Admin manages the department list and each exam's department assignments
 - Optional time limit per exam (auto-submit when time is up)
 - Randomized question order and answer choices per attempt
 - Students take quizzes sequentially on one computer
@@ -36,7 +39,7 @@ Open the app window. By default the client runs on http://localhost:5173 and the
    - Open the Teacher tab, add/edit questions, and optionally set a time limit (in minutes).
    - Click Save to persist. Use Export to download results as Excel.
 - Student
-   - Enter your name and start the exam. The timer appears in the left tracker panel.
+   - Choose your department, then the exam, then enter your name and start. The timer appears in the left tracker panel.
    - Navigate via the tracker; submit when done. If a time limit is set, the exam auto-submits at 0.
 
 ## How to build (production)
